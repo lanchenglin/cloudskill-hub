@@ -58,7 +58,15 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-') as td:
             page.locator('#pickedFiles').filter(has_text='Unsafe path').wait_for()
             assert not page.locator('#pickedFiles').inner_text().startswith('已选择')
             page.set_viewport_size({'width':390,'height':844})
-            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 2'), 'Mobile horizontal overflow'
+            for width in [390, 320]:
+                page.set_viewport_size({'width':width,'height':844})
+                overflow=page.evaluate("""() => ({width:innerWidth, scroll:document.documentElement.scrollWidth,
+                    elements:[...document.querySelectorAll('body *')].filter(el => {
+                        const r=el.getBoundingClientRect(); return r.width && (r.right > innerWidth + 2 || r.left < -2);
+                    }).slice(0,20).map(el => ({tag:el.tagName,id:el.id,classes:el.className,
+                        width:el.getBoundingClientRect().width,right:el.getBoundingClientRect().right}))})""")
+                assert overflow['scroll'] <= width+2, f'Mobile horizontal overflow: {overflow}'
+
             if os.environ.get('BROWSER_SCREENSHOT'):
                 page.screenshot(path=os.environ['BROWSER_SCREENSHOT'],full_page=True)
             assert not errors,errors

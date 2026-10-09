@@ -11,3 +11,16 @@
 #uploadLimits { font-size: .875rem; line-height: 1.7; }
 .upload-row { flex-wrap: wrap; }
 button:disabled { opacity: .55; cursor: not-allowed; }
+
+/* Grid children must be allowed to shrink below long command/filename min-content widths. */
+.two-col > *, .panel, .upload-row > *, .row-card > div { min-width: 0; }
+.panel pre { max-width: 100%; overflow-x: auto; }
+.pick-result, .detail-meta, .row-card small, .device-skill { overflow-wrap: anywhere; }
+#toast { max-width: min(400px, calc(100vw - 48px)); overflow-wrap: anywhere; }
+@media (max-width: 1120px) { .two-col { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 680px) {
+  .panel { padding: 18px; }
+  .upload-row .upload-btn { white-space: normal; flex-basis: 110px; }
+  .topbar { gap: 8px; }
+  .breadcrumb { min-width: 0; overflow-wrap: anywhere; }
+}
