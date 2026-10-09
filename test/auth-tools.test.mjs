@@ -33,7 +33,7 @@ async function completeInitialization(t){
   }
   await call('/api/auth/login',account);
   const password='AI activated private password for tests 12345';
-  await call('/api/auth/password',{currentPassword:account.password,newPassword:password,bootstrapSecret:t.f.env.BOOTSTRAP_SECRET});
+  await call('/api/auth/password',{currentPassword:account.password,newPassword:password});
   await assert.rejects(initialize(t.options),/HTTP 401/);
   const file=path.join(t.dir,'new-password.json');await fs.writeFile(file,JSON.stringify({password}),{mode:0o600});
   return initialize({...t.options,passwordFile:file});

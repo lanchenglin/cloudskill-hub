@@ -16,14 +16,14 @@
 | GET | `/api/auth/session` | Cookie 会话信息、csrfToken、mustChangePassword、activationSecretRequired |
 | POST | `/api/auth/logout` | Cookie + CSRF，当前会话失效 |
 | POST | `/api/auth/reauth` | Cookie + CSRF + `{password}`；延续 5 分钟敏感操作验证 |
-| POST | `/api/auth/password` | Cookie + CSRF + `{currentPassword,newPassword,bootstrapSecret?}`；完成首次改密或正常改密，撤销网页会话 |
+| POST | `/api/auth/password` | Cookie + CSRF + `{currentPassword,newPassword}`；完成首次改密或正常改密，撤销网页会话 |
 | POST | `/api/auth/revoke-all-tokens` | 最近验证 + CSRF + `{confirm:"revoke-all-api-tokens"}`，显式撤销所有 API Token |
 
 没有公网忘记密码重置接口；可信命令见 [AUTH.md](AUTH.md)。`/api/bootstrap` Token-only 接口返回 410，不能绕过密码设置。
 
 ### 首次登录限制
 
-`mustChangePassword=true` 时不要加载目录或签发 Token。完成 `/api/auth/password` 才解除限制；正式新密码为 15–128 字符且不能与当前值相同。`activationSecretRequired=true` 时必须传入部署时的 Secret（旧实例转换为原管理员 Token），缺失/错误返回 403 `activation_secret_required`。成功返回 `mustChangePassword:false`，所有旧 Cookie 失效，再次登录才有正常权限。客户端不能通过传 `mustChangePassword:false` 清除状态。
+`mustChangePassword=true` 时不要加载目录或签发 Token。完成 `/api/auth/password` 才解除限制；正式新密码为 15–128 字符且不能与当前值相同。`activationSecretRequired` 仅为兼容字段，恒为 false；首次和日常改密均不要求初始化 Secret 或原管理员 Token。旧请求附带的 `bootstrapSecret` 字段会被忽略，但会话、当前密码、CSRF 和新密码规则仍必须通过。成功返回 `mustChangePassword:false`，所有旧 Cookie 失效，再次登录才有正常权限。客户端不能通过传 `mustChangePassword:false` 清除状态。
 
 后台业务接口和已有 Bearer 的访问同样返回 403 `password_change_required`；自定义集成必须尊重该状态，不能自动重新初始化或调用可信恢复绕过。匿名公开入口保持原有语义。
 
@@ -67,7 +67,7 @@
 
 ```json
 {
-  "version": "0.3.1",
+  "version": "0.3.2",
   "uploadProtocol": 2,
   "limits": {
     "maxFiles": 1000,
@@ -151,7 +151,7 @@ GET /.well-known/agent-skills/{skill}/{archiveDigest}.zip
 |---|---|
 | 400 | 内容、路径、ZIP、元数据或校验不合法；修正输入，不盲目重试 |
 | 401 | 缺少、失效或被撤销的令牌 |
-| 403 | 没有权限，或 password_change_required / activation_secret_required / reauth_required |
+| 403 | 没有权限，或 password_change_required / reauth_required |
 | 404 | 不存在、会话不属于当前令牌，或匿名访问私有资源 |
 | 409 | 并发发布、版本变化、名称冲突或状态冲突；刷新后重新确认 |
 | 410 | 会话过期、取消竞态或清理中；创建新会话 |

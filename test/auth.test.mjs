@@ -23,7 +23,7 @@ async function fresh(env){
   assert.equal(created.status,201,JSON.stringify(created.data));
   const initial=await web(env,'/api/auth/login','POST',{username:'owner',password:INITIAL_ADMIN_PASSWORD});
   assert.equal(initial.data.mustChangePassword,true);
-  const changed=await web(env,'/api/auth/password','POST',{currentPassword:INITIAL_ADMIN_PASSWORD,newPassword:PASSWORD,bootstrapSecret:env.BOOTSTRAP_SECRET},initial);
+  const changed=await web(env,'/api/auth/password','POST',{currentPassword:INITIAL_ADMIN_PASSWORD,newPassword:PASSWORD},initial);
   assert.equal(changed.status,200,JSON.stringify(changed.data));
   const session=await web(env,'/api/auth/login','POST',{username:'owner',password:PASSWORD});
   assert.equal(session.status,200,JSON.stringify(session.data));assert.equal(session.data.mustChangePassword,false);return session;

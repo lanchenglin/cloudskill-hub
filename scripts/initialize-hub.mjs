@@ -94,7 +94,7 @@ export async function initialize(options){
       report('Administrator initialized; FIRST PASSWORD CHANGE REQUIRED: '+url);
       report('Web username: '+account.username);report('Initial password file: '+paths.admin);
       report('Sign in on the website and choose a new password. No project or API token has been created.');
-      if(session.activationSecretRequired)report('Keep bootstrap.json (or the original legacy administrator credential) for the first password change.');
+      report('The first password change needs only the current and new passwords; no bootstrap secret or ownership proof.');
       report('After changing it, use --password-file with the new private credential to finish A/B token setup. Do not reset the account.');
       return {...paths,status:'password_change_required'};
     }

@@ -54,13 +54,9 @@
     <section id="forcePasswordPanel" class="auth-panel" hidden>
       <div class="eyebrow">FIRST LOGIN / CHANGE PASSWORD</div>
       <h1>先修改初始密码。</h1>
-      <p>此步骤不能跳过。修改完成前不能查看技能、管理项目、上传或签发 Token；刷新和重新登录不会解除限制。</p>
+      <p>此步骤不能跳过。只需填写当前密码和新密码，不需要初始化 Secret。修改完成前不能查看技能、管理项目、上传或签发 Token；刷新和重新登录不会解除限制。</p>
       <form id="forcePasswordForm" class="auth-form">
         <label for="forceCurrentPassword">当前初始密码</label><input id="forceCurrentPassword" type="password" autocomplete="current-password" required maxlength="256" />
-        <div id="activationProof" hidden>
-          <label for="forceBootstrapSecret">首次初始化 Secret</label><input id="forceBootstrapSecret" type="password" autocomplete="off" />
-          <p class="muted">初始密码是公开固定值，需用部署时 bootstrap.json 中的 BOOTSTRAP_SECRET 确认所有权。旧实例转换请填原管理员 Token，仅首次需要。</p>
-        </div>
         <label for="forceNewPassword">新密码（15–128 字符）</label><input id="forceNewPassword" type="password" autocomplete="new-password" required minlength="15" maxlength="256" />
         <label for="forceNewPasswordAgain">确认新密码</label><input id="forceNewPasswordAgain" type="password" autocomplete="new-password" required maxlength="256" />
         <p id="forcePasswordError" role="alert"></p>

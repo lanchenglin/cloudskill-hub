@@ -44,7 +44,7 @@ try{
   const initial=await api('/api/auth/login','POST',{username:'native-admin',password:'lanchenglin'});
   assert.equal(initial.mustChangePassword,true);
   assert.equal((await fetch(url+'/api/catalog',{headers:{Cookie:cookie}})).status,403);
-  await api('/api/auth/password','POST',{currentPassword:'lanchenglin',newPassword:password,bootstrapSecret:config.vars.BOOTSTRAP_SECRET});
+  await api('/api/auth/password','POST',{currentPassword:'lanchenglin',newPassword:password});
   const activated=await api('/api/auth/login','POST',{username:'native-admin',password});
   assert.equal(activated.mustChangePassword,false);
   assert.match(cookie,/^csh_dev_session=/);

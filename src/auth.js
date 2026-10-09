@@ -68,13 +68,13 @@ async function requireActivatedAccount(env){
 export async function webSession(request,env,{mutating=true,allowPasswordChange=false}={}){
   const value=cookieValue(request);if(!value)throw problem('Sign in required',401);
   const hash=await tokenHash(value),time=Date.now();
-  const row=await one(env.DB,`SELECT s.*,a.username,a.token_id,a.must_change_password,a.activation_secret_hash FROM web_sessions s JOIN web_admin a ON a.id=s.admin_id
+  const row=await one(env.DB,`SELECT s.*,a.username,a.token_id,a.must_change_password FROM web_sessions s JOIN web_admin a ON a.id=s.admin_id
     JOIN access_tokens t ON t.id=a.token_id WHERE s.session_hash=? AND s.password_version=a.password_version
     AND s.expires_at>? AND s.last_seen_at>? AND t.credential_type='web' AND t.revoked_at IS NULL`,hash,time,time-SESSION_IDLE);
   if(!row)throw problem('Session expired or revoked; sign in again',401);
   const u={id:row.token_id,label:row.username,role:'admin',projects:[],authType:'session',sessionHash:hash,
     csrfToken:row.csrf_token,reauthenticatedAt:row.reauthenticated_at,expiresAt:row.expires_at,passwordVersion:row.password_version,
-    mustChangePassword:Boolean(row.must_change_password),activationSecretRequired:Boolean(row.activation_secret_hash)};
+    mustChangePassword:Boolean(row.must_change_password),activationSecretRequired:false}; // Compatibility flag; no proof is required.
   if(mutating&&!['GET','HEAD','OPTIONS'].includes(request.method.toUpperCase()))csrf(request,u);
   if(u.mustChangePassword&&!allowPasswordChange)throw problem('password_change_required',403);
   if(row.last_seen_at<time-60000)await run(env.DB,'UPDATE web_sessions SET last_seen_at=? WHERE session_hash=?',time,hash);
@@ -138,19 +138,17 @@ async function createAccount(request,env,body){
   }
   const username=validateUsername(body.username??'admin'),password=body.password===undefined?INITIAL_ADMIN_PASSWORD:body.password;
   const hashed=await hashInitialPassword(password),date=now();
-  // A public default password must not let an outsider win the first password-change race.
-  // Keep only a digest of the already-verified setup proof; no secret is returned to a login client.
-  const proof=password===INITIAL_ADMIN_PASSWORD
-    ?await tokenHash(legacy?request.headers.get('authorization').slice(7):body.secret):null;
+  // Bootstrap authorization ends at account creation. First password changes use
+  // the authenticated session, current password and CSRF checks, not a second proof.
   // The fixed account PK and transaction permit exactly one winner under simultaneous setup.
   try{await env.DB.batch([
     env.DB.prepare(`INSERT INTO access_tokens (id,label,token_hash,role,project_scope,created_at,credential_type)
       VALUES ('t_web_owner',?,?,'admin','[]',?,'web')`).bind(username,await tokenHash(secret()),date),
-    env.DB.prepare(`INSERT INTO web_admin (id,username,password_hash,token_id,created_at,updated_at,must_change_password,activation_secret_hash)
-      VALUES (1,?,?,'t_web_owner',?,?,1,?)`).bind(username,hashed,date,date,proof),
+    env.DB.prepare(`INSERT INTO web_admin (id,username,password_hash,token_id,created_at,updated_at,must_change_password)
+      VALUES (1,?,?,'t_web_owner',?,?,1)`).bind(username,hashed,date,date),
     env.DB.prepare('INSERT INTO audit_log (id,actor,action,detail,created_at) VALUES (?,?,?,?,?)').bind(randomId('a_'),username,'web_admin_created','{}',date),
   ]);}catch(e){if(String(e.message).includes('UNIQUE'))throw problem('Administrator is already initialized',409);throw e;}
-  return {initialized:true,username,mustChangePassword:true,activationSecretRequired:Boolean(proof)};
+  return {initialized:true,username,mustChangePassword:true,activationSecretRequired:false};
 }
 async function createSession(request,env,user){
   const raw=secret(),hash=await tokenHash(raw),csrfToken=secret(),time=Date.now();
@@ -163,7 +161,7 @@ async function createSession(request,env,user){
   // Bound retained sessions. Login rotates the cookie and never exposes its value in JSON.
   await run(env.DB,`DELETE FROM web_sessions WHERE session_hash NOT IN
     (SELECT session_hash FROM web_sessions ORDER BY created_at DESC,rowid DESC LIMIT 10)`);
-  return {cookie:sessionCookie(request,raw,SESSION_TTL/1000),body:{username:user.username,role:'admin',csrfToken,expiresAt:time+SESSION_TTL,mustChangePassword:Boolean(user.must_change_password),activationSecretRequired:Boolean(user.activation_secret_hash)}};
+  return {cookie:sessionCookie(request,raw,SESSION_TTL/1000),body:{username:user.username,role:'admin',csrfToken,expiresAt:time+SESSION_TTL,mustChangePassword:Boolean(user.must_change_password),activationSecretRequired:false}};
 }
 export async function authRoutes(request,env,readJson,json){
   const path=new URL(request.url).pathname,method=request.method.toUpperCase();
@@ -217,10 +215,6 @@ export async function authRoutes(request,env,readJson,json){
     const user=await one(env.DB,'SELECT * FROM web_admin WHERE id=1');
     if(!await verifyPassword(b.currentPassword,user.password_hash))throw problem('Current password is incorrect',401);
     if(b.currentPassword===b.newPassword)throw problem('Choose a different new password');
-    if(user.must_change_password&&user.activation_secret_hash){
-      if(typeof b.bootstrapSecret!=='string'||!equal(await tokenHash(b.bootstrapSecret),user.activation_secret_hash))
-        throw problem('activation_secret_required',403);
-    }
     const hash=await hashPassword(b.newPassword);
     const changed=await run(env.DB,`UPDATE web_admin SET password_hash=?,password_version=password_version+1,must_change_password=0,activation_secret_hash=NULL,updated_at=?
       WHERE id=1 AND password_hash=? AND password_version=?`,hash,now(),user.password_hash,u.passwordVersion);

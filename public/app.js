@@ -4,7 +4,7 @@ import {frontmatter} from './lib/metadata.js';
 import {publishBrowser} from './lib/browser-upload.js';
 const $ = id => document.getElementById(id);
 sessionStorage.removeItem('csh-token'); // Retire old long-lived browser API credentials.
-const state = {csrfToken:'',me:null,projects:[],skills:[],devices:[],view:'library',authStatus:null,mustChangePassword:false,activationSecretRequired:false};
+const state = {csrfToken:'',me:null,projects:[],skills:[],devices:[],view:'library',authStatus:null,mustChangePassword:false};
 let toastTimer;
 function toast(message,bad=false){const el=$('toast');el.textContent=message;el.className=bad?'bad':'';el.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.style.display='none',4500);}
 function node(tag,className,text){const el=document.createElement(tag);if(className)el.className=className;if(text!==undefined)el.textContent=String(text);return el;}
@@ -24,7 +24,6 @@ async function api(path,method='GET',data,extraHeaders={}){
 function authUi(active){
   const restricted=active&&state.mustChangePassword;
   $('auth-card').hidden=active;$('dashboard').hidden=!active||restricted;$('forcePasswordPanel').hidden=!restricted;
-  $('activationProof').hidden=!state.activationSecretRequired;$('forceBootstrapSecret').required=restricted&&state.activationSecretRequired;
   $('actor').textContent=state.me?.label||'未登录';$('role').textContent=restricted?'必须先修改初始密码':active?'网页管理员':'账号密码登录';
   $('logout').hidden=!active;
   document.querySelectorAll('.nav-item,[data-go]').forEach(el=>el.disabled=!active||restricted);
@@ -32,13 +31,13 @@ function authUi(active){
 function clearLogin(){
   activeUpload?.abort();selectedFiles=[];pickGeneration++;
   if($('detailDialog').open)$('detailDialog').close();$('detailBody').replaceChildren();
-  state.csrfToken='';state.me=null;state.mustChangePassword=false;state.activationSecretRequired=false;$('forcePasswordForm').reset();$('forcePasswordError').textContent='';state.skills=[];state.projects=[];state.devices=[];
+  state.csrfToken='';state.me=null;state.mustChangePassword=false;$('forcePasswordForm').reset();$('forcePasswordError').textContent='';state.skills=[];state.projects=[];state.devices=[];
   $('issuedValue').textContent='';$('issuedToken').hidden=true;$('passwordForm').reset();
   $('skillsGrid').replaceChildren();$('tokensList').replaceChildren();authUi(false);
 }
 async function acceptSession(session){
   state.csrfToken=session.csrfToken;state.me={label:session.username,role:'admin'};
-  state.mustChangePassword=Boolean(session.mustChangePassword);state.activationSecretRequired=Boolean(session.activationSecretRequired);
+  state.mustChangePassword=Boolean(session.mustChangePassword);
   authUi(true);if(state.mustChangePassword){$('forceNewPassword').focus();return;}
   await refresh();
 }
@@ -190,10 +189,9 @@ $('setupForm').onsubmit=async e=>{
   try{
     const username=$('setupUsername').value,password=$('setupPassword').value;
     if(password!==$('setupPasswordAgain').value)throw Error('两次输入的密码不一致');
-    const proof=state.authStatus?.legacyConversion?$('legacyAdminToken').value.trim():$('setupSecret').value;
-    const headers=state.authStatus?.legacyConversion?{Authorization:'Bearer '+proof}:{};
+    const headers=state.authStatus?.legacyConversion?{Authorization:'Bearer '+$('legacyAdminToken').value.trim()}:{};
     await api('/api/auth/setup','POST',{secret:$('setupSecret').value,username,password},headers);
-    $('setupForm').reset();await login(username,password);if(state.activationSecretRequired)$('forceBootstrapSecret').value=proof;
+    $('setupForm').reset();await login(username,password);
     await loadAuthStatus();toast('管理员已初始化，请先修改初始密码');
   }catch(error){toast(error.message,true);}finally{$('setupBtn').disabled=false;}
 };
@@ -203,11 +201,10 @@ $('forcePasswordForm').onsubmit=async e=>{
   try{
     if($('forceNewPassword').value!==$('forceNewPasswordAgain').value)throw Error('两次输入的新密码不一致');
     const username=state.me.label;
-    await api('/api/auth/password','POST',{currentPassword:$('forceCurrentPassword').value,newPassword:$('forceNewPassword').value,
-      ...(state.activationSecretRequired?{bootstrapSecret:$('forceBootstrapSecret').value}:{})});
+    await api('/api/auth/password','POST',{currentPassword:$('forceCurrentPassword').value,newPassword:$('forceNewPassword').value});
     clearLogin();$('usernameInput').value=username;toast('初始密码已修改，请使用新密码重新登录');
   }catch(error){
-    $('forcePasswordError').textContent=error.message==='activation_secret_required'?'首次改密需要正确的初始化 Secret；旧实例转换请填写原管理员 Token。':error.message;
+    $('forcePasswordError').textContent=error.message;
   }finally{$('forcePasswordSubmit').disabled=false;}
 };
 $('passwordForm').onsubmit=async e=>{

@@ -11,7 +11,7 @@
 使用我已经授权的 Cloudflare 账号首次部署一个私人 Hub。
 网页登录用账号密码，A 使用 personal 项目的 publisher Token，B 使用 client Token。
 默认账号 admin、初始密码 lanchenglin；初始化后提示我首次登录必须改密，不替我改成随机密码或跳过门禁。
-保留仓库外 bootstrap.json，首次改密需要其中的初始化 Secret。完成改密后再签发 A/B Token。
+首次改密只填写当前密码、新密码和确认新密码，不要求初始化 Secret。完成改密后再签发 A/B Token。
 完成隔离验收，报告实际地址、账号名、凭据文件位置、资源和测试结果。
 不要改现有 Hermes 配置，不上传真实私人技能，不开 GitHub 自动部署。
 缺授权、账号目标不明、同名业务资源或需付费开通时说明阻塞，不清库、不换临时账号。
@@ -157,9 +157,11 @@ node scripts/initialize-hub.mjs --url "$CSH_HUB_URL" --credentials-dir "$CSH_DEP
 
 首次脚本创建 `admin` / `lanchenglin`（用户名可通过 --username 指定），将账号记录先保存到仓库外 `web-admin.json`，验证登录及 `mustChangePassword=true` 后退出安装器会话，返回状态 **password_change_required** 和退出码 **2**。这表示服务已部署但等待用户首次改密，不是部署失败。退出码 1 才是需排查的错误。代码 2 不得触发重置密码、清库、重新初始化或无限重试。
 
-**此时不创建 personal，不签发 A/B Token，不调用受保护业务接口。** 不生成随机新密码、不替用户调用改密接口、不修改 D1 强制标记来宣称验收通过。交付实际网址、用户名、初始密码说明及私有引导文件位置，请用户登录后设置自己的新密码；这是用户明确要求的步骤。
+**此时不创建 personal，不签发 A/B Token，不调用受保护业务接口。** 不生成随机新密码、不替用户调用改密接口、不修改 D1 强制标记来宣称验收通过。交付实际网址、用户名、初始密码说明及账号文件位置，请用户登录后直接设置自己的新密码；这是用户明确要求的步骤。
 
-固定初始密码是公开的，首次改密还需要部署时 `bootstrap.json` 中的 BOOTSTRAP_SECRET 确认所有权；旧 Token-only 转换采用原管理员 Token，仍需显式 --legacy-admin-file。不得删除或打印这些证明材料。首次网页登录是受限会话，不能跳过改密；即使自定义强初始密码也必须更换一次。
+首次改密**不再要求** `BOOTSTRAP_SECRET`、原管理员 Token 或读取 `bootstrap.json`。这些凭据仅用于首次创建账号或已有 Token-only 实例的授权转换（仍需显式 --legacy-admin-file），不传入改密接口，也不增加其他所有权验证。首次网页登录仍是受限会话，不能跳过改密；即使自定义强初始密码也必须更换一次。
+
+固定初始密码是公开的，知道地址和默认凭据的人可能抢先改密。第一阶段结束时应提醒用户尽快首次登录改密；不把未改密实例宣称为已经安全投入使用。
 
 用户完成网页改密后，可自行用新密码登录网页创建 personal 项目和 Token，不必再将新密码交给 AI。需要 AI 继续配客户端时，由用户在仓库外私有 JSON 中安全提供新密码（`password` 字段，可包含 `username`；不放聊天或命令行），执行：
 
@@ -174,13 +176,13 @@ node scripts/initialize-hub.mjs --url "$CSH_HUB_URL" --credentials-dir "$CSH_DEP
 ```text
 CSH_DEPLOY_DIR/
   wrangler.json       实际部署配置（无秘密）
-  bootstrap.json      首次改密证明，完成前保留
+  bootstrap.json      仅创建账号时使用；确认创建和初始登录后可清理
   web-admin.json      第一阶段为初始账号；第二阶段验证成功后才更新为新密码
   publisher-a.json    仅第二阶段完成后存在
   client-b.json       仅第二阶段完成后存在
 ```
 
-文件不是加密保险库，同一系统用户可读。报告用户名和路径，不输出实际新密码、Secret、Token 或 Cookie。只有确认新密码登录正常、mustChangePassword=false、凭据已可靠保存后，才能删除远端 BOOTSTRAP_SECRET 和本地 bootstrap.json；不要在刚创建默认账号时清理。
+文件不是加密保险库，同一系统用户可读。报告用户名和路径，不输出实际新密码、Secret、Token 或 Cookie。确认账号创建成功、已验证初始登录并可靠保存 web-admin.json 后，即可清理远端 BOOTSTRAP_SECRET 和本地 bootstrap.json；首次改密与这些引导材料无关，无需等到 mustChangePassword=false。不得清理 web-admin.json 或用户提供的新密码文件。
 
 ```bash
 npx wrangler secret delete BOOTSTRAP_SECRET --config "$CSH_DEPLOY_CONFIG"
@@ -232,7 +234,7 @@ npm run reset-password -- --remote --config "$CSH_DEPLOY_CONFIG"
 
 必须先核对目标并获得恢复授权。这不是普通发布设备的能力，也没有公网密码重置后门。脚本以密码版本条件更新，触发全部网页会话失效；默认不撤销 A/B Token。
 
-HTTP 401：检查会话/密码/Token 是否正确、过期或已撤销；403：先识别 password_change_required（必须改密）或 activation_secret_required（一次性证明错误），再检查 CSRF、同源、publisher 范围或重新验证；409：检查已有账号/并发版本，不重复初始化；429：尊重 Retry-After；500/503：检查迁移、bindings、密码原生 crypto 与 CPU 额度，不能关闭安全校验。
+HTTP 401：检查会话/密码/Token 是否正确、过期或已撤销；403：先识别 password_change_required（必须改密），再检查 CSRF、同源、publisher 范围或重新验证；409：检查已有账号/并发版本，不重复初始化；429：尊重 Retry-After；500/503：检查迁移、bindings、密码原生 crypto 与 CPU 额度，不能关闭安全校验。
 
 密码修改响应丢失时先尝试验证新凭据，不盲目恢复旧密码；初始化脚本在远端创建之前已保存初始账号；本地默认密码过期时只接受用户合法提供的新密码，不自动回退或重置。已有业务数据先备份，失败时不要删资源或重建账号“回滚”。
 

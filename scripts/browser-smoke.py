@@ -49,14 +49,18 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
                 page.set_viewport_size({'width':width,'height':844})
                 assert page.evaluate('document.documentElement.scrollWidth') <= width+2
             page.set_viewport_size({'width':1440,'height':1000})
+            assert page.locator('#forceBootstrapSecret').count() == 0
+            assert page.locator('#activationProof').count() == 0
+            # A new login after a refresh must still show only the password-change form.
+            page.locator('#forceLogout').click();page.locator('#auth-card').wait_for(state='visible')
+            page.locator('#usernameInput').fill(creds['username']);page.locator('#passwordInput').fill('lanchenglin')
+            page.locator('#authBtn').click();page.locator('#forcePasswordPanel').wait_for(state='visible')
             page.locator('#forceCurrentPassword').fill('lanchenglin')
-            page.locator('#forceBootstrapSecret').fill('incorrect-proof')
             page.locator('#forceNewPassword').fill(creds['password']);page.locator('#forceNewPasswordAgain').fill(creds['password'])
-            page.locator('#forcePasswordSubmit').click()
-            page.locator('#forcePasswordError').filter(has_text='初始化 Secret').wait_for()
-            assert page.locator('#dashboard').is_hidden()
-            page.locator('#forceBootstrapSecret').fill(creds['bootstrapSecret'])
-            page.locator('#forcePasswordSubmit').click();page.locator('#auth-card').wait_for(state='visible')
+            with page.expect_request(lambda req: req.url.endswith('/api/auth/password') and req.method == 'POST') as changed_request:
+                page.locator('#forcePasswordSubmit').click()
+            assert set(changed_request.value.post_data_json) == {'currentPassword', 'newPassword'}
+            page.locator('#auth-card').wait_for(state='visible')
             page.locator('#usernameInput').fill(creds['username']);page.locator('#passwordInput').fill(creds['password'])
             page.locator('#authBtn').click();page.locator('#dashboard').wait_for(state='visible')
             assert page.evaluate('document.cookie').find('csh_dev_session') == -1
@@ -124,7 +128,7 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             assert page.locator('#dashboard').is_hidden()
             assert not errors,errors
             browser.close()
-        print('PASS: Chromium default password, mandatory first change (refresh/Escape/API rejection), HttpOnly session reload, publisher issuance, ZIP upload/edit/download, password change/logout, unsafe ZIP rejection and mobile layout')
+        print('PASS: Chromium default password, mandatory first change without bootstrap proof (refresh/re-login/Escape/API rejection), HttpOnly session reload, publisher issuance, ZIP upload/edit/download, password change/logout, unsafe ZIP rejection and mobile layout')
     finally:
         server.terminate()
         try: server.wait(timeout=5)

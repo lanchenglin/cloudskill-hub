@@ -22,7 +22,7 @@ async function initial(env,extra={}){
   assert.equal(created.data.mustChangePassword,true);
   return web(env,'/api/auth/login',{username:extra.username||'admin',password:extra.password??INITIAL_ADMIN_PASSWORD});
 }
-const change=(env,s,extra={})=>web(env,'/api/auth/password',{currentPassword:INITIAL_ADMIN_PASSWORD,newPassword:NEXT,bootstrapSecret:env.BOOTSTRAP_SECRET,...extra},s);
+const change=(env,s,extra={})=>web(env,'/api/auth/password',{currentPassword:INITIAL_ADMIN_PASSWORD,newPassword:NEXT,...extra},s);
 
 test('default is exactly lanchenglin; password exception exists only in account initialization',async()=>{
   assert.equal(INITIAL_ADMIN_PASSWORD,'lanchenglin');
@@ -34,13 +34,14 @@ test('default is exactly lanchenglin; password exception exists only in account 
   assert.ok(await verifyPassword(INITIAL_ADMIN_PASSWORD,a));
   const f=fixture();try{
     const s=await initial(f.env,{mustChangePassword:false,activationSecretRequired:false});
-    assert.equal(s.status,200);assert.equal(s.data.mustChangePassword,true);assert.equal(s.data.activationSecretRequired,true);
+    assert.equal(s.status,200);assert.equal(s.data.mustChangePassword,true);assert.equal(s.data.activationSecretRequired,false);
     const record=f.db.prepare('SELECT * FROM web_admin').get();
     assert.equal(record.username,'admin');assert.equal(record.must_change_password,1);
-    assert.match(record.activation_secret_hash,/^[a-f0-9]{64}$/);
+    assert.equal(record.activation_secret_hash,null);
     const audit=JSON.stringify(f.db.prepare('SELECT * FROM audit_log').all());
     for(const secret of [INITIAL_ADMIN_PASSWORD,f.env.BOOTSTRAP_SECRET,s.cookie])assert.ok(!audit.includes(secret));
-    assert.ok(!JSON.stringify(s.data).includes(record.activation_secret_hash));
+    assert.equal(s.data.activation_secret_hash,undefined);
+    assert.ok(!JSON.stringify(s.data).includes(f.env.BOOTSTRAP_SECRET));
   }finally{f.close();}
 });
 
@@ -71,18 +72,19 @@ test('pending session cannot use any protected API, even by forging flags or byp
   }finally{f.close();}
 });
 
-test('fixed initial password alone cannot seize ownership; first change requires setup proof and CSRF',async()=>{
+test('first change needs only current/new passwords with a valid session and CSRF, not the bootstrap secret',async()=>{
   const f=fixture();try{
     const s=await initial(f.env);
-    assert.equal((await change(f.env,s,{bootstrapSecret:undefined})).data.error,'activation_secret_required');
-    assert.equal((await change(f.env,s,{bootstrapSecret:'wrong'})).data.error,'activation_secret_required');
-    assert.equal((await web(f.env,'/api/auth/password',{currentPassword:INITIAL_ADMIN_PASSWORD,newPassword:NEXT,bootstrapSecret:f.env.BOOTSTRAP_SECRET},s,'POST',{'X-CSRF-Token':'wrong'})).status,403);
+    // Setup proof can be removed immediately after setup. Password changes never read it.
+    delete f.env.BOOTSTRAP_SECRET;
+    const body={currentPassword:INITIAL_ADMIN_PASSWORD,newPassword:NEXT};
+    assert.equal((await web(f.env,'/api/auth/password',body,undefined)).status,401);
+    assert.equal((await web(f.env,'/api/auth/password',body,s,'POST',{'X-CSRF-Token':'wrong'})).status,403);
+    assert.equal((await web(f.env,'/api/auth/password',body,s,'POST',{Origin:'https://other.example'})).status,403);
     assert.equal((await change(f.env,s,{currentPassword:'wrong'})).status,401);
     assert.equal((await change(f.env,s,{newPassword:INITIAL_ADMIN_PASSWORD})).status,400);
     assert.equal(f.db.prepare('SELECT must_change_password FROM web_admin').get().must_change_password,1);
-    // The validated proof digest survives removal of the temporary Worker secret.
-    const proof=f.env.BOOTSTRAP_SECRET;delete f.env.BOOTSTRAP_SECRET;
-    assert.equal((await change(f.env,s,{bootstrapSecret:proof})).status,200);
+    assert.equal((await change(f.env,s)).status,200);
     const user=f.db.prepare('SELECT * FROM web_admin').get();
     assert.equal(user.must_change_password,0);assert.equal(user.activation_secret_hash,null);
     assert.equal((await web(f.env,'/api/auth/session',undefined,s)).status,401);
@@ -92,6 +94,45 @@ test('fixed initial password alone cannot seize ownership; first change requires
     assert.equal((await web(f.env,'/api/projects',{slug:'personal',title:'Personal'},activated)).status,201);
     const token=await web(f.env,'/api/tokens',{label:'A',role:'publisher',projects:['personal']},activated);
     assert.equal(token.status,201);assert.equal((await api(f.env,'/api/me','GET',null,token.data.token)).data.role,'publisher');
+  }finally{f.close();}
+});
+
+test('a retained activation hash from an earlier setup cannot force proof after the application update',async()=>{
+  const f=fixture();try{
+    const first=await initial(f.env);
+    f.db.prepare('UPDATE web_admin SET activation_secret_hash=?').run('a'.repeat(64));
+    delete f.env.BOOTSTRAP_SECRET;
+    const restored=await web(f.env,'/api/auth/session',undefined,first);
+    assert.equal(restored.data.mustChangePassword,true);
+    assert.equal(restored.data.activationSecretRequired,false);
+    const login=await web(f.env,'/api/auth/login',{username:'admin',password:INITIAL_ADMIN_PASSWORD});
+    assert.equal(login.data.activationSecretRequired,false);
+    assert.equal((await web(f.env,'/api/catalog',undefined,login)).data.error,'password_change_required');
+    assert.equal((await change(f.env,login)).status,200);
+    assert.equal(f.db.prepare('SELECT activation_secret_hash FROM web_admin').get().activation_secret_hash,null);
+    assert.equal((await web(f.env,'/api/auth/session',undefined,first)).status,401);
+  }finally{f.close();}
+});
+
+test('obsolete optional proof values are ignored without bypassing the password or CSRF checks',async()=>{
+  const f=fixture();try{
+    const s=await initial(f.env);
+    f.db.prepare('UPDATE web_admin SET activation_secret_hash=?').run('b'.repeat(64));
+    assert.equal((await change(f.env,s,{currentPassword:'wrong',bootstrapSecret:'obsolete-value'})).status,401);
+    assert.equal((await change(f.env,s,{bootstrapSecret:'obsolete-value'})).status,200);
+    assert.equal((await web(f.env,'/api/auth/login',{username:'admin',password:NEXT})).data.mustChangePassword,false);
+  }finally{f.close();}
+});
+
+test('removing proof from password changes does not remove authorization from account setup',async()=>{
+  const f=fixture();try{
+    assert.equal((await web(f.env,'/api/auth/setup',{})).status,403);
+    assert.equal((await web(f.env,'/api/auth/setup',{secret:'wrong'})).status,403);
+    assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM web_admin').get().n,0);
+    const s=await initial(f.env);
+    assert.equal((await web(f.env,'/api/auth/setup',{secret:f.env.BOOTSTRAP_SECRET})).status,409);
+    assert.equal(s.data.mustChangePassword,true);
+    assert.equal((await web(f.env,'/api/catalog',undefined,s)).status,403);
   }finally{f.close();}
 });
 
@@ -116,23 +157,24 @@ test('custom strong setup also requires a different password and cannot clear th
     const s=await initial(f.env,{password,mustChangePassword:false});
     assert.equal(s.data.mustChangePassword,true);assert.equal(s.data.activationSecretRequired,false);
     assert.equal((await change(f.env,s,{currentPassword:password,newPassword:password})).status,400);
-    assert.equal((await change(f.env,s,{currentPassword:password,bootstrapSecret:undefined})).status,200);
+    assert.equal((await change(f.env,s,{currentPassword:password})).status,200);
     assert.equal((await web(f.env,'/api/auth/login',{username:'admin',password})).status,401);
     assert.equal((await web(f.env,'/api/auth/login',{username:'admin',password:NEXT})).data.mustChangePassword,false);
   }finally{f.close();}
 });
 
-test('legacy token-based conversion cannot use bearer access until activated; proof uses the original admin token',async()=>{
+test('legacy conversion still requires its admin token at setup, but not again during the first password change',async()=>{
   const f=fixture();try{
     const old=await setup(f.env);
     await api(f.env,'/api/projects','POST',{slug:'personal',title:'Personal'},old);
     const reader=(await api(f.env,'/api/tokens','POST',{label:'Existing B',role:'client',projects:['personal']},old)).data.token;
+    assert.equal((await web(f.env,'/api/auth/setup',{username:'admin',secret:f.env.BOOTSTRAP_SECRET})).status,403);
     const created=await web(f.env,'/api/auth/setup',{username:'admin'},undefined,'POST',{Authorization:'Bearer '+old});
     assert.equal(created.status,201);
     for(const token of [old,reader])assert.equal((await api(f.env,'/api/catalog','GET',null,token)).data.error,'password_change_required');
     const s=await web(f.env,'/api/auth/login',{username:'admin',password:INITIAL_ADMIN_PASSWORD});
-    assert.equal((await change(f.env,s,{bootstrapSecret:f.env.BOOTSTRAP_SECRET})).status,403);
-    assert.equal((await change(f.env,s,{bootstrapSecret:old})).status,200);
+    assert.equal(s.data.activationSecretRequired,false);
+    assert.equal((await change(f.env,s)).status,200);
     for(const token of [old,reader])assert.equal((await api(f.env,'/api/catalog','GET',null,token)).status,200);
   }finally{f.close();}
 });

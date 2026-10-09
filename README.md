@@ -5,7 +5,7 @@
 [![CI](https://github.com/lanchenglin/cloudskill-hub/actions/workflows/ci.yml/badge.svg)](https://github.com/lanchenglin/cloudskill-hub/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-当前版本 **0.3.1**，使用 `main` 的完整代码。只需安装当前版本，不需要依次安装开发阶段的中间版本。
+当前版本 **0.3.2**，使用 `main` 的完整代码。只需安装当前版本，不需要依次安装开发阶段的中间版本。
 
 **网页用管理员账号和密码；客户端用独立 Token。** A 使用指定项目的 `publisher` 发布令牌，B 使用 `client` 只读令牌。不再需要把全站管理员权限交给每套 Hermes。
 
@@ -78,7 +78,9 @@ cloudskill install personal/my-skill --agents claude
 
 **首次初始化默认账号 `admin`，初始密码 `lanchenglin`。第一次登录必须先修改密码，不能跳过。** 修改前只能读取登录状态、修改密码或退出，不能读取私人技能、管理项目、上传、下载或签发 Token；服务端检查 `must_change_password`，不是只在页面弹窗。刷新、重新登录或直接调用 API 都不能解除限制。
 
-固定初始密码是公开值，**首次改密还需部署时的 `BOOTSTRAP_SECRET`**，防止其他人用默认密码抢先改密接管。网页刚完成初始化时会在当前页面内存中带入，换浏览器或刷新后从部署机仓库外 `bootstrap.json` 读取；旧 Token-only 转换使用原管理员 Token 作为证明。Secret 不随登录响应返回，数据库只保存其摘要，完成改密后清除摘要。
+**首次改密不再需要 `BOOTSTRAP_SECRET` 或其他所有权证明。** 登录后只需填写当前密码、新密码和确认新密码；刷新、换浏览器或重新登录也不需要查找 `bootstrap.json`。`BOOTSTRAP_SECRET` 仅用于部署时首次创建管理员，已有 Token-only 实例仍需原管理员授权转换，这些部署鉴权与改密无关。
+
+固定初始密码是公开值，任何知道地址和默认凭据的人都可能抢先改密；部署后应尽快由本人完成首次改密，不要把默认账号长期留在公网。
 
 AI 初始化把初始账号保存到 `web-admin.json`，返回 `password_change_required` 并以退出码 **2** 暂停；这不是部署失败，也不会提前创建项目或 A/B Token。你在网页改密后，用新密码重新登录；可以直接在网页创建项目和令牌，或给初始化脚本提供仓库外的新 `--password-file` 继续，届时才生成 `publisher-a.json`、`client-b.json`。**升级已有账号不会重置成默认密码。**
 
