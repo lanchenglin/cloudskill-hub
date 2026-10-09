@@ -13,7 +13,7 @@ export function archiveVerifier(manifest,limits,expectedName){
   sections.push({literal:shape.tail,size:shape.tail.length});
   let section=0,position=0,total=0,fileHash=null,fileCrc=0,skillChunks=[],skillLength=0;
   const fullHash=createHash('sha256');
-  const result={metadata:null,stream:null};
+  const result={metadata:null,stream:null,abort:null};
   function advance(){
     while(section<sections.length&&position===sections[section].size){
       const cur=sections[section];
@@ -26,6 +26,11 @@ export function archiveVerifier(manifest,limits,expectedName){
     }
   }
   result.stream=new TransformStream({
+    start(controller){
+      // WritableStream.abort can wait behind a backpressured write. Erroring both
+      // transform sides immediately makes that write settle before pipeline cleanup.
+      result.abort=reason=>controller.error(reason);
+    },
     transform(chunk,controller){
       if(!(chunk instanceof Uint8Array))throw problem('Upload must contain binary bytes');
       total+=chunk.length;if(total>shape.size)throw problem('Archive exceeds declared size',413);
@@ -70,6 +75,7 @@ export async function putVerified(request,bucket,key,manifest,limits,name){
   const write=Promise.resolve().then(()=>bucket.put(key,fixed.readable,{sha256:manifest.archiveDigest,httpMetadata:{contentType:'application/zip'}}));
   try{await Promise.all([feed,pump,write]);if(!verifier.metadata)throw problem('Archive validation did not complete');return verifier.metadata;}
   catch(error){
+    verifier.abort(error);
     abort.abort(error);
     // An R2 failure before it acquires the readable can strand a backpressured write.
     // Cancel that readable too; cancellation of a reader already owned by R2 is harmlessly refused.
