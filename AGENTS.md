@@ -24,4 +24,4 @@
 
 运行测试前注意：Hermes 进程可能带有 HERMES_HOME 等环境变量，必须按照 AI_DEPLOY.md 隔离测试子进程，避免写入用户真实技能目录。
 
-当前认证：网页账号密码，A 为 publisher，B 为 client。首次初始化使用 scripts/initialize-hub.mjs，密码恢复使用有明确目标的 scripts/reset-password.mjs；不是旧的 Token-only bootstrap。详见 docs/AUTH.md。
+当前认证：网页账号密码，A 为 publisher，B 为 client。默认初始账号 admin / lanchenglin，首次登录必须改密；初始化脚本返回 password_change_required（退出码 2）时应交付地址与引导文件位置，不能自动生成新密码、清除标记或提前签发 Token。保留 bootstrap.json 供用户确认首次改密所有权，完成后才继续 A/B 配置。首次初始化使用 scripts/initialize-hub.mjs，密码恢复使用有明确目标的 scripts/reset-password.mjs；不是旧的 Token-only bootstrap。详见 docs/AUTH.md。

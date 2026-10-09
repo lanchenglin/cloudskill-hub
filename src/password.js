@@ -4,6 +4,7 @@
  */
 import {scrypt, randomBytes, timingSafeEqual} from 'node:crypto';
 import {problem} from '../public/lib/policy.js';
+export const INITIAL_ADMIN_PASSWORD = 'lanchenglin'; // Public onboarding value, never a permanent password.
 export const PASSWORD_PROFILE = Object.freeze({N:16384,r:8,p:5,maxmem:32*1024*1024});
 export function validateUsername(value){
   if(typeof value!=='string')throw problem('Username must be 3–64 ASCII letters, numbers, dot, underscore or hyphen');
@@ -25,11 +26,18 @@ async function derive(password,salt){
   try{return await new Promise((resolve,reject)=>scrypt(password,salt,32,PASSWORD_PROFILE,(error,key)=>error?reject(error):resolve(key)));}
   finally{active--;}
 }
-export async function hashPassword(password){
-  validatePassword(password);
+async function encodePassword(password){
   const salt=randomBytes(16).toString('hex');
   const key=await derive(password,Buffer.from(salt,'hex'));
   return `scrypt$16384$8$5$${salt}$${key.toString('hex')}`;
+}
+export async function hashPassword(password){
+  validatePassword(password);return encodePassword(password);
+}
+/** Only account setup may use the known initial value. Normal changes/recovery stay 15–128. */
+export async function hashInitialPassword(password=INITIAL_ADMIN_PASSWORD){
+  if(password!==INITIAL_ADMIN_PASSWORD)validatePassword(password);
+  return encodePassword(password);
 }
 export async function verifyPassword(password,stored){
   if(typeof password!=='string'||[...password].length>128)return false;

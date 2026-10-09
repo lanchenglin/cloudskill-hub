@@ -11,15 +11,21 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/auth/status` | 是否初始化、是否需原管理员转换；不暴露账号名称 |
-| POST | `/api/auth/setup` | `{secret?,username,password}`；初次 Secret 或显式原管理员 Bearer，单例初始化 |
-| POST | `/api/auth/login` | `{username,password}`；Set-Cookie，返回 username/role/csrfToken/expiresAt |
-| GET | `/api/auth/session` | Cookie 会话信息与 csrfToken |
+| POST | `/api/auth/setup` | `{secret?,username?,password?}`；默认 admin/lanchenglin，初次 Secret 或原管理员 Bearer；固定 mustChangePassword=true |
+| POST | `/api/auth/login` | `{username,password}`；Set-Cookie，返回 username/role/csrfToken/expiresAt/mustChangePassword/activationSecretRequired |
+| GET | `/api/auth/session` | Cookie 会话信息、csrfToken、mustChangePassword、activationSecretRequired |
 | POST | `/api/auth/logout` | Cookie + CSRF，当前会话失效 |
 | POST | `/api/auth/reauth` | Cookie + CSRF + `{password}`；延续 5 分钟敏感操作验证 |
-| POST | `/api/auth/password` | Cookie + CSRF + `{currentPassword,newPassword}`；撤销全部网页会话，不撤销 API Token |
+| POST | `/api/auth/password` | Cookie + CSRF + `{currentPassword,newPassword,bootstrapSecret?}`；完成首次改密或正常改密，撤销网页会话 |
 | POST | `/api/auth/revoke-all-tokens` | 最近验证 + CSRF + `{confirm:"revoke-all-api-tokens"}`，显式撤销所有 API Token |
 
 没有公网忘记密码重置接口；可信命令见 [AUTH.md](AUTH.md)。`/api/bootstrap` Token-only 接口返回 410，不能绕过密码设置。
+
+### 首次登录限制
+
+`mustChangePassword=true` 时不要加载目录或签发 Token。完成 `/api/auth/password` 才解除限制；正式新密码为 15–128 字符且不能与当前值相同。`activationSecretRequired=true` 时必须传入部署时的 Secret（旧实例转换为原管理员 Token），缺失/错误返回 403 `activation_secret_required`。成功返回 `mustChangePassword:false`，所有旧 Cookie 失效，再次登录才有正常权限。客户端不能通过传 `mustChangePassword:false` 清除状态。
+
+后台业务接口和已有 Bearer 的访问同样返回 403 `password_change_required`；自定义集成必须尊重该状态，不能自动重新初始化或调用可信恢复绕过。匿名公开入口保持原有语义。
 
 ## 主要接口
 
@@ -61,7 +67,7 @@
 
 ```json
 {
-  "version": "0.3.0",
+  "version": "0.3.1",
   "uploadProtocol": 2,
   "limits": {
     "maxFiles": 1000,
@@ -145,7 +151,7 @@ GET /.well-known/agent-skills/{skill}/{archiveDigest}.zip
 |---|---|
 | 400 | 内容、路径、ZIP、元数据或校验不合法；修正输入，不盲目重试 |
 | 401 | 缺少、失效或被撤销的令牌 |
-| 403 | 没有管理员/项目权限 |
+| 403 | 没有权限，或 password_change_required / activation_secret_required / reauth_required |
 | 404 | 不存在、会话不属于当前令牌，或匿名访问私有资源 |
 | 409 | 并发发布、版本变化、名称冲突或状态冲突；刷新后重新确认 |
 | 410 | 会话过期、取消竞态或清理中；创建新会话 |
@@ -163,4 +169,4 @@ Cookie 管理员超过最近验证时限时，签发/撤销操作返回 403 `rea
 
 发布者禁止创建 public 包或编辑已公开 Skill；权限检查同时覆盖 JSON、ZIP 会话、上传、finalize 和回滚。web 身份的上传会话绑定内部管理员主体，不是 Cookie 原值；同一管理员重新登录可续接。
 
-新增 `0003_web_auth.sql` 是加法迁移。role=publisher 在内部通过 client + can_publish 标记表示；调用方使用 API 返回的有效 role，不直接推测数据库列。
+账号结构和强制改密状态分别由 `0003_web_auth.sql`、`0004_require_password_change.sql` 加法迁移建立。004 对已有账号使用默认标记 0，不改旧密码、不撤销旧会话；新建账号显式设置为 1。role=publisher 在内部通过 client + can_publish 标记表示；调用方使用 API 返回的有效 role，不直接推测数据库列。

@@ -38,15 +38,15 @@ npm run db:migrate
 npm run deploy
 ```
 
-统一迁移命令会执行所有尚未应用文件：`0001_initial.sql`、`0002_binary_uploads.sql`、`0003_web_auth.sql`，共同组成当前结构。空库不能只应用 0003；不要删除、重命名或合并迁移。部署命令本身不代替数据库初始化。
+统一迁移命令会执行所有尚未应用文件：`0001_initial.sql`、`0002_binary_uploads.sql`、`0003_web_auth.sql`、`0004_require_password_change.sql`，共同组成当前结构。空库不能只应用最后一个文件；不要删除、重命名或合并迁移。部署命令本身不代替数据库初始化。
 
 保存 Wrangler 实际返回的 HTTPS 地址。没有自定义域名时使用自己的 workers.dev 地址；有域名时绑定 Worker，不是把 R2 变成公共桶。
 
 ## 4. 设置网页登录账号密码
 
-打开网站首页，展开“首次部署？初始化管理员账号”。输入初始化 Secret，设置自己的用户名与 15–128 字符长密码，再登录。
+打开网站首页，展开“首次部署？初始化管理员账号”。输入初始化 Secret，默认用户名 `admin`、初始密码 `lanchenglin`。创建后进入强制改密页面，设置与初始密码不同的 15–128 字符新密码，再使用新密码重新登录。
 
-没有默认密码；网页不再要求你粘贴长期管理员 API Token。初始化只允许一个管理员，成功后再次初始化会被拒绝。确认账号可登录且凭据可靠保存后，可以删除 BOOTSTRAP_SECRET。
+首次改密必须验证初始化 Secret，防止公开的固定密码被别人抢先使用。网页完成初始化后会自动带入当前页面；刷新或另开浏览器时从部署机私有目录的 `bootstrap.json` 读取并填写。没有完成改密前，服务端拒绝访问私人数据和管理接口；初始化只能创建一个管理员，重复运行不能恢复默认密码。确认新密码可以登录并可靠保存后，才删除 BOOTSTRAP_SECRET 和本地引导文件。
 
 若使用 AI 初始化：
 
@@ -54,7 +54,15 @@ npm run deploy
 node scripts/initialize-hub.mjs --url https://YOUR-HUB --credentials-dir /YOUR/PRIVATE/DEPLOY-DIR
 ```
 
-该私有目录应有部署时生成的 `bootstrap.json`，且在源码仓库外。脚本默认用户名 admin，随机生成密码并保存到 `web-admin.json`；创建 personal 项目和 `publisher-a.json` / `client-b.json`，不在终端打印密码/Token。可以通过 `--username` 和外部 `--password-file` 指定自己准备的账号密码。初始化脚本不负责创建 Cloudflare 资源，不能在未知地址运行。
+该私有目录应有部署时生成的 `bootstrap.json`，且在源码仓库外。脚本默认保存 `admin` / `lanchenglin` 到 `web-admin.json`；验证受限登录后返回 `password_change_required`，退出码 **2**，不创建项目或 Token。它不会替用户改密来跳过这一流程。
+
+你完成网页强制改密后，可在网页直接创建 personal 和 A/B Token；也可将新密码存入仓库外权限为 0600 的 JSON 文件（包含 `password`，可包含 `username`），继续执行：
+
+```bash
+node scripts/initialize-hub.mjs --url https://YOUR-HUB --credentials-dir /YOUR/PRIVATE/DEPLOY-DIR --password-file /YOUR/PRIVATE/new-password.json
+```
+
+脚本验证新密码成功才更新本地账号文件，再创建 personal 项目及 `publisher-a.json` / `client-b.json`。错误的新密码不会覆盖已保存账号，过期的默认密码不会自动重置远端。所有真实密码/Secret/Token 不在终端输出。初始化脚本不负责创建 Cloudflare 资源，不能在未知地址运行。
 
 ## 5. 为 A/B 签发 Token
 

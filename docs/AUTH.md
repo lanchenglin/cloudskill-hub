@@ -4,9 +4,17 @@
 
 ## 账号初始化
 
-网页首页设置用户名和密码，必须先有足够随机的 BOOTSTRAP_SECRET。用户名规范化为小写，3–64 个 ASCII 字母、数字、点、下划线或中划线；密码 15–128 个字符，支持空格、中文和 Unicode，不截断、不去除密码首尾空白。
+首次初始化仍需要足够随机的 BOOTSTRAP_SECRET。默认用户名 `admin`，默认初始密码 `lanchenglin`；用户名可自定义并规范化为小写，3–64 个 ASCII 字母、数字、点、下划线或中划线。正式新密码必须 15–128 个字符，支持空格、中文和 Unicode，不截断、不去除首尾空白。已部署账号不因升级或重跑初始化变成默认密码。
 
-没有通用默认密码。手动部署由用户设置；`scripts/initialize-hub.mjs` 默认用户名 admin，并在未提供密码文件时生成随机 32 字节密码，保存在仓库外 `web-admin.json`，建议首次登录后自行修改。
+所有新建账号都带 `must_change_password=1`，包括指定强初始密码的账号。登录及 `/api/auth/session` 返回 `mustChangePassword`。值为 true 时，所有需要鉴权的业务 API（包含读接口、文件下载、设备、上传、Token、旧管理员 Bearer）均返回 403 `password_change_required`，仅允许读取自己的登录状态、修改密码及退出。匿名健康检查、登录状态和本来就公开的内容不是私人数据。
+
+前端显示独立的强制改密页，不加载后台数据，不提供关闭/跳过按钮。后端检查数据库状态，伪造页面、请求标记、Cookie 刷新或重新验证都无法绕过。修改成功以同一 UPDATE 清除强制标记并递增密码版本，触发器撤销全部旧网页会话；必须用新密码重新登录。
+
+**防止默认密码抢先接管：** 默认密码是公开的，单靠“强制修改”不足以证明操作者是部署者。因此初始化时保存已验证 BOOTSTRAP_SECRET 的 SHA-256 摘要到 `activation_secret_hash`；登录不返回其值，首次改密请求还须携带 `bootstrapSecret`。原 Token-only 实例采用原管理员 Token 作为一次性证明。即使远端删除 BOOTSTRAP_SECRET，已记录摘要仍可校验原值；但不要丢弃本地引导文件，否则需可信 D1 恢复。完成改密时摘要置空，日常登录/改密不再需要它。
+
+`hashInitialPassword` 只对精确的 `lanchenglin` 放行长度例外；正常 `hashPassword`、改密和恢复仍要求强密码，不允许“任意短初始密码”。实际哈希强度与其他密码相同。
+
+初始化脚本首次只写仓库外 `web-admin.json` 并报告待改密（退出码 2），不会创建项目/Token，也不会偷偷更改默认密码。用户网页改密后，用新密码文件继续可生成 scoped A/B Token；只有验证新密码成功才替换本地账号记录。
 
 初始化事务使用单例主键，只能创建一个管理员。旧 `/api/bootstrap` 的 Token-only 初始化已关闭并返回 410，不能不设密码继续签发全站 Token。
 
@@ -69,7 +77,7 @@ npm run reset-password -- --remote --config /PRIVATE/wrangler.json --revoke-toke
 npm run reset-password -- --remote --config /PRIVATE/wrangler.json --password-file /PRIVATE/new-password.json
 ```
 
-必须显式选择 --remote 或 --local；不要把测试当作远程恢复。脚本读取当前账号版本，生成新的 scrypt 哈希，以版本条件更新，不打印密码或哈希；所有网页会话被撤销。没有账号时不会借此新建管理员。可用 --username 修正忘记的账号名，仍需完整管理授权。
+必须显式选择 --remote 或 --local；不要把测试当作远程恢复。脚本读取当前账号版本，生成新的 scrypt 哈希，以版本条件更新，不打印密码或哈希；所有网页会话被撤销，强制改密标记和一次性证明一并清除。恢复只接受正式强密码，不恢复到公开默认值。没有账号时不会借此新建管理员。可用 --username 修正忘记的账号名，仍需完整管理授权。
 
 临时 SQL 仅含哈希，保存在私有临时目录并清理。生产恢复前先核对账号、Worker 与 D1 ID。这个命令的管理权限等同数据库管理员，不能交给普通 Hermes 发布设备。
 

@@ -1,5 +1,7 @@
 # 日常使用：A 发布，B 手动更新
 
+管理员必须先完成首次强制改密，才能创建项目和签发 A/B Token。默认 admin / lanchenglin 仅是初始登录，不能用来长期管理仓库。
+
 本项目只需要部署一个 Hub。网站管理员用账号密码管理；AI/CLI 用各自的 Token。首次安装见 [SETUP.md](SETUP.md)，权限见 [AUTH.md](AUTH.md)。
 
 ## 1. 两种凭据，不要混用

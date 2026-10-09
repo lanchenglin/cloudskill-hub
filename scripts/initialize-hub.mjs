@@ -3,9 +3,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {randomBytes} from 'node:crypto';
-import {validatePassword,validateUsername} from '../src/password.js';
+import {validatePassword,validateUsername,INITIAL_ADMIN_PASSWORD} from '../src/password.js';
 import {hubOrigin} from '../cli/manager.mjs';
+function initialPassword(value){if(value!==INITIAL_ADMIN_PASSWORD)validatePassword(value);return value;}
 const root=fileURLToPath(new URL('../',import.meta.url));
 async function read(file){
   try{const stat=await fs.lstat(file);if(!stat.isFile()||stat.isSymbolicLink()||stat.size>16384)throw Error('Credential must be a small regular file');return JSON.parse(await fs.readFile(file,'utf8'));}
@@ -49,19 +49,28 @@ export async function initialize(options){
     const health=await api('/healthz');
     if(health.app!=='cloudskill-hub'||health.version!==expected)throw Error('Unexpected deployed application/version; no credentials sent');
     const status=await api('/api/auth/status');
-    let account=await read(paths.admin);
+    let account=await read(paths.admin),supplied=null,replaceSaved=false;
+    if(options.passwordFile){
+      outside(options.passwordFile);supplied=await read(path.resolve(options.passwordFile));
+      if(!supplied||typeof supplied.password!=='string')throw Error('Provided password file is missing or invalid');
+      if(supplied.url&&supplied.url!==url)throw Error('Provided account belongs to a different Hub');
+      initialPassword(supplied.password);
+    }
+    if(account&&supplied){
+      if(account.url!==url)throw Error('Saved web account belongs to a different Hub');
+      account={url,username:validateUsername(options.username||supplied.username||account.username),password:supplied.password};
+      replaceSaved=true; // Persist only AFTER the remote password has been verified.
+    }
     if(!account){
-      let supplied=null;
-      if(options.passwordFile){outside(options.passwordFile);supplied=await read(path.resolve(options.passwordFile));if(!supplied)throw Error('Provided password file is missing');}
       if(status.initialized&&!supplied)throw Error('Existing administrator requires its saved/provided password; bootstrap cannot reset it');
       const username=validateUsername(options.username||supplied?.username||'admin');
-      const password=supplied?.password??randomBytes(32).toString('base64url');validatePassword(password);
+      const password=supplied?.password??INITIAL_ADMIN_PASSWORD;initialPassword(password);
       account={url,username,password};
       // Persist generated credentials before creating the account so a lost HTTP response is recoverable.
       await save(paths.admin,account);
     }
     if(account.url!==url)throw Error('Saved web account belongs to a different Hub');
-    validateUsername(account.username);validatePassword(account.password);
+    validateUsername(account.username);initialPassword(account.password);
     if(!status.initialized){
       let token,secret;
       if(status.legacyConversion){
@@ -75,7 +84,20 @@ export async function initialize(options){
       await api('/api/auth/setup','POST',{username:account.username,password:account.password,...(secret?{secret}:{})},token);
     }
     await api('/api/auth/login','POST',{username:account.username,password:account.password});
-    if((await api('/api/auth/session')).username!==account.username)throw Error('Web account verification failed');
+    const session=await api('/api/auth/session');
+    if(session.username!==account.username)throw Error('Web account verification failed');
+    if(replaceSaved){
+      const temporary=paths.admin+'.verified-'+process.pid;
+      try{await save(temporary,account);await fs.rename(temporary,paths.admin);}finally{await fs.rm(temporary,{force:true});}
+    }
+    if(session.mustChangePassword){
+      report('Administrator initialized; FIRST PASSWORD CHANGE REQUIRED: '+url);
+      report('Web username: '+account.username);report('Initial password file: '+paths.admin);
+      report('Sign in on the website and choose a new password. No project or API token has been created.');
+      if(session.activationSecretRequired)report('Keep bootstrap.json (or the original legacy administrator credential) for the first password change.');
+      report('After changing it, use --password-file with the new private credential to finish A/B token setup. Do not reset the account.');
+      return {...paths,status:'password_change_required'};
+    }
     const projects=await api('/api/projects');
     if(!projects.projects.some(p=>p.slug==='personal'))await api('/api/projects','POST',{slug:'personal',title:'个人技能'});
     for(const [file,role,label] of [[paths.publisher,'publisher','publisher-a-initial'],[paths.reader,'client','client-b-initial']]){
@@ -98,7 +120,7 @@ export async function initialize(options){
     report('A project-publisher token file: '+paths.publisher);
     report('B read-only token file: '+paths.reader);
     report('No password/token printed. Client tokens expire after 90 days; replace from the website when needed.');
-    return paths;
+    return {...paths,status:'ready'};
   }finally{
     if(cookie&&csrfToken){try{await api('/api/auth/logout','POST',{});}catch{report('Warning: installer logout could not be confirmed; the session is time-limited.');}}
     await lock.close();await fs.unlink(lockPath);
@@ -115,7 +137,7 @@ function argumentsOf(args){
 }
 if(process.argv[1]&&pathToFileURL(path.resolve(process.argv[1])).href===import.meta.url){
   (async()=>{const o=argumentsOf(process.argv.slice(2));
-    if(o.help){console.log('Usage: node scripts/initialize-hub.mjs --url https://YOUR-HUB --credentials-dir /PRIVATE/DIRECTORY [--username admin] [--password-file /PRIVATE/account.json] [--legacy-admin-file /PRIVATE/owner.json]\nCreates one web account, personal project, scoped publisher and reader. Credentials stay outside Git. Not a Cloudflare deployment command.');return;}
-    if(!o.url||!o.dir)throw Error('Provide the verified Hub URL and an external private credential directory');await initialize(o);
+    if(o.help){console.log('Usage: node scripts/initialize-hub.mjs --url https://YOUR-HUB --credentials-dir /PRIVATE/DIRECTORY [--username admin] [--password-file /PRIVATE/account.json] [--legacy-admin-file /PRIVATE/owner.json]\nCreates a first-login account, then stops until its password is changed (exit 2). Rerun with the verified new password to create the personal project and A/B tokens. Credentials stay outside Git. Not a Cloudflare deployment command.');return;}
+    if(!o.url||!o.dir)throw Error('Provide the verified Hub URL and an external private credential directory');const result=await initialize(o);if(result.status==='password_change_required')process.exitCode=2;
   })().catch(error=>{console.error('Initialization stopped:',error.message);process.exitCode=1;});
 }

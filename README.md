@@ -5,7 +5,7 @@
 [![CI](https://github.com/lanchenglin/cloudskill-hub/actions/workflows/ci.yml/badge.svg)](https://github.com/lanchenglin/cloudskill-hub/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-当前版本 **0.3.0**，使用 `main` 的完整代码。只需安装当前版本，不需要依次安装开发阶段的中间版本。
+当前版本 **0.3.1**，使用 `main` 的完整代码。只需安装当前版本，不需要依次安装开发阶段的中间版本。
 
 **网页用管理员账号和密码；客户端用独立 Token。** A 使用指定项目的 `publisher` 发布令牌，B 使用 `client` 只读令牌。不再需要把全站管理员权限交给每套 Hermes。
 
@@ -27,8 +27,9 @@
 ```text
 请拉取 lanchenglin/cloudskill-hub 的 main，完整读取 AGENTS.md 和 AI_DEPLOY.md，
 使用我已授权的 Cloudflare 账号执行首次部署及验收，不要只给建议。
-初始化一个网页登录账号，为 A 创建 personal 项目的 publisher Token，
-为 B 创建 client Token。所有密码和 Token 保存在仓库外私有目录，不在聊天中回显。
+初始化网页账号 admin，初始密码 lanchenglin，交付地址并提示我首次登录必须改密。
+不要替我改成随机密码或跳过强制改密。改密完成后，再创建 personal 和 A/B 的 publisher/client Token。
+所有实际新密码、初始化 Secret 和 Token 保存在仓库外私有目录，不在聊天中回显。
 没有凭据、目标不明确或需额外付费时说明阻塞，不更换账号、不清库、不关闭鉴权。
 ```
 
@@ -75,9 +76,13 @@ cloudskill install personal/my-skill --agents claude
 | A / 可信发布设备 | `publisher` Token | 读取和发布指定项目的私有技能，不能改账号、签发令牌或公开技能 |
 | B / C / 只需使用技能的工具 | `client` Token | 只读取指定项目 |
 
-没有通用默认密码。手工初始化由你设置；AI 初始化默认账号 `admin`，密码为随机生成值，保存在部署机仓库外的 `web-admin.json`。首次登录后建议改成自己管理的长密码。客户端凭据分别保存为 `publisher-a.json` 和 `client-b.json`。
+**首次初始化默认账号 `admin`，初始密码 `lanchenglin`。第一次登录必须先修改密码，不能跳过。** 修改前只能读取登录状态、修改密码或退出，不能读取私人技能、管理项目、上传、下载或签发 Token；服务端检查 `must_change_password`，不是只在页面弹窗。刷新、重新登录或直接调用 API 都不能解除限制。
 
-密码要求 15–128 字符，支持空格和 Unicode；使用原生 scrypt 与独立随机盐保存哈希。网页用 HttpOnly / Secure / SameSite Cookie，不把长期管理员 API Token 放进浏览器存储。会话有 12 小时绝对期限、30 分钟空闲期限；退出立即撤销当前会话。改密码撤销全部网页会话，**不会自动撤销客户端 Token**；疑似泄露时另外执行撤销。
+固定初始密码是公开值，**首次改密还需部署时的 `BOOTSTRAP_SECRET`**，防止其他人用默认密码抢先改密接管。网页刚完成初始化时会在当前页面内存中带入，换浏览器或刷新后从部署机仓库外 `bootstrap.json` 读取；旧 Token-only 转换使用原管理员 Token 作为证明。Secret 不随登录响应返回，数据库只保存其摘要，完成改密后清除摘要。
+
+AI 初始化把初始账号保存到 `web-admin.json`，返回 `password_change_required` 并以退出码 **2** 暂停；这不是部署失败，也不会提前创建项目或 A/B Token。你在网页改密后，用新密码重新登录；可以直接在网页创建项目和令牌，或给初始化脚本提供仓库外的新 `--password-file` 继续，届时才生成 `publisher-a.json`、`client-b.json`。**升级已有账号不会重置成默认密码。**
+
+新密码要求 15–128 字符，必须不同于初始密码，支持空格和 Unicode；`lanchenglin` 只在初始化哈希时例外，普通改密和可信恢复不接受短密码。使用原生 scrypt 与独立随机盐保存哈希。网页用 HttpOnly / Secure / SameSite Cookie，不把长期管理员 API Token 放进浏览器存储。会话有 12 小时绝对期限、30 分钟空闲期限；退出立即撤销当前会话。改密码撤销全部网页会话，**不会自动撤销客户端 Token**；疑似泄露时另外执行撤销。
 
 新 Token 默认 90 天有效，可选择 1–365 天、逐个撤销；到期后在网页重新签发并更新客户端。已有 API Token 的兼容、重新验证、可信恢复和安全限制见 [AUTH.md](docs/AUTH.md)。
 
@@ -113,9 +118,9 @@ npx wrangler d1 create cloudskill_hub --no-update-config
 npx wrangler r2 bucket create cloudskill-hub
 ```
 
-将真实 D1 ID 写入配置、核对资源归属和私有桶，再安全设置 `BOOTSTRAP_SECRET`。执行 `npm run db:migrate` 初始化 **全部 SQL**，随后 `npm run deploy`。打开网站首页设置管理员账号密码；不是去 `/setup` 路径。
+将真实 D1 ID 写入配置、核对资源归属和私有桶，再安全设置 `BOOTSTRAP_SECRET`。执行 `npm run db:migrate` 初始化 **全部 SQL**，随后 `npm run deploy`。打开网站首页完成管理员初始化，用初始密码登录并完成强制改密；不是去 `/setup` 路径。
 
-**首次空库需要 0001、0002、0003 全部迁移**，不要只运行最后一个文件。GitHub 自动部署仍默认关闭；上述是说明，不代表已操作用户账号。
+**首次空库需要 0001、0002、0003、0004 全部迁移**，不要只运行最后一个文件。GitHub 自动部署仍默认关闭；上述是说明，不代表已操作用户账号。
 
 ## 凭据与互通边界
 

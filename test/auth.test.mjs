@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {fixture,api,setup,skill} from './helpers.mjs';
 import {handler} from '../src/index.js';
-import {hashPassword,verifyPassword,validatePassword,validateUsername} from '../src/password.js';
+import {hashPassword,verifyPassword,validatePassword,validateUsername,INITIAL_ADMIN_PASSWORD} from '../src/password.js';
 import {SESSION_IDLE,SESSION_TTL,REAUTH_TTL,cleanupAuth} from '../src/auth.js';
 import {tokenHash} from '../src/core.js';
 import {pack} from '../public/lib/archive.js';
@@ -19,10 +19,14 @@ async function web(env,path,method='GET',body,session,headers={}){
   return {response,data,status:response.status,cookie:response.headers.get('set-cookie')?.split(';')[0]};
 }
 async function fresh(env){
-  const created=await web(env,'/api/auth/setup','POST',{secret:env.BOOTSTRAP_SECRET,username:'owner',password:PASSWORD});
+  const created=await web(env,'/api/auth/setup','POST',{secret:env.BOOTSTRAP_SECRET,username:'owner'});
   assert.equal(created.status,201,JSON.stringify(created.data));
+  const initial=await web(env,'/api/auth/login','POST',{username:'owner',password:INITIAL_ADMIN_PASSWORD});
+  assert.equal(initial.data.mustChangePassword,true);
+  const changed=await web(env,'/api/auth/password','POST',{currentPassword:INITIAL_ADMIN_PASSWORD,newPassword:PASSWORD,bootstrapSecret:env.BOOTSTRAP_SECRET},initial);
+  assert.equal(changed.status,200,JSON.stringify(changed.data));
   const session=await web(env,'/api/auth/login','POST',{username:'owner',password:PASSWORD});
-  assert.equal(session.status,200,JSON.stringify(session.data));return session;
+  assert.equal(session.status,200,JSON.stringify(session.data));assert.equal(session.data.mustChangePassword,false);return session;
 }
 async function project(env,session,name='personal'){
   const result=await web(env,'/api/projects','POST',{slug:name,title:name},session);assert.equal(result.status,201);return result;
@@ -42,7 +46,7 @@ test('passwords use random salts, a fixed memory-hard profile, Unicode and no tr
   await assert.rejects(verifyPassword(value,'scrypt$1$1$1$unsafe'),/Unsupported/);
 });
 
-test('fresh setup has no default password or reusable admin API token; session cookie is hardened',async()=>{
+test('fresh setup activates only after changing the initial password; no reusable admin API token',async()=>{
   const f=fixture();try{
     assert.equal((await web(f.env,'/api/auth/status')).data.initialized,false);
     assert.equal((await web(f.env,'/api/auth/setup','POST',{secret:'wrong',username:'owner',password:PASSWORD})).status,403);
@@ -118,7 +122,7 @@ test('changing a password invalidates all web sessions but leaves API tokens ind
     assert.equal((await web(f.env,'/api/auth/login','POST',{username:'owner',password:PASSWORD})).status,401);
     assert.equal((await web(f.env,'/api/auth/login','POST',{username:'owner',password:NEXT_PASSWORD})).status,200);
     assert.equal((await api(f.env,'/api/me','GET',null,t.token)).status,200);
-    assert.equal(f.db.prepare('SELECT password_version FROM web_admin').get().password_version,2);
+    assert.equal(f.db.prepare('SELECT password_version FROM web_admin').get().password_version,3);
   }finally{f.close();}
 });
 
@@ -189,7 +193,10 @@ test('existing API-admin conversion preserves data and requires the original adm
     assert.equal((await web(f.env,'/api/auth/setup','POST',body)).status,403);
     assert.equal((await web(f.env,'/api/auth/setup','POST',body,null,{Authorization:'Bearer '+b.token})).status,403);
     assert.equal((await web(f.env,'/api/auth/setup','POST',body,null,{Authorization:'Bearer '+old})).status,201);
-    const s=await web(f.env,'/api/auth/login','POST',{username:'owner',password:PASSWORD});
+    const pending=await web(f.env,'/api/auth/login','POST',{username:'owner',password:PASSWORD});
+    assert.equal((await api(f.env,'/api/catalog','GET',null,b.token)).status,403);
+    assert.equal((await web(f.env,'/api/auth/password','POST',{currentPassword:PASSWORD,newPassword:NEXT_PASSWORD},pending)).status,200);
+    const s=await web(f.env,'/api/auth/login','POST',{username:'owner',password:NEXT_PASSWORD});
     assert.equal((await api(f.env,'/api/catalog','GET',null,b.token)).data.skills[0].slug,'retained');
     assert.equal((await api(f.env,'/api/me','GET',null,old)).status,200);
     const oldId=f.db.prepare('SELECT id FROM access_tokens WHERE token_hash=?').get(await tokenHash(old)).id;
@@ -202,7 +209,7 @@ test('existing API-admin conversion preserves data and requires the original adm
 test('D1 login limiting stops repeated attempts, returns Retry-After and does not trust X-Forwarded-For',async()=>{
   const f=fixture();try{
     await fresh(f.env);
-    for(let i=0;i<9;i++)assert.equal((await web(f.env,'/api/auth/login','POST',{username:'owner',password:'wrong'},null,{'X-Forwarded-For':String(i)})).status,401);
+    for(let i=0;i<8;i++)assert.equal((await web(f.env,'/api/auth/login','POST',{username:'owner',password:'wrong'},null,{'X-Forwarded-For':String(i)})).status,401);
     const blocked=await web(f.env,'/api/auth/login','POST',{username:'owner',password:PASSWORD});
     assert.equal(blocked.status,429);assert.ok(Number(blocked.response.headers.get('retry-after'))>0);
     f.db.prepare('UPDATE auth_rate_limits SET reset_at=0').run();await cleanupAuth(f.env);

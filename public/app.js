@@ -4,7 +4,7 @@ import {frontmatter} from './lib/metadata.js';
 import {publishBrowser} from './lib/browser-upload.js';
 const $ = id => document.getElementById(id);
 sessionStorage.removeItem('csh-token'); // Retire old long-lived browser API credentials.
-const state = {csrfToken:'',me:null,projects:[],skills:[],devices:[],view:'library',authStatus:null};
+const state = {csrfToken:'',me:null,projects:[],skills:[],devices:[],view:'library',authStatus:null,mustChangePassword:false,activationSecretRequired:false};
 let toastTimer;
 function toast(message,bad=false){const el=$('toast');el.textContent=message;el.className=bad?'bad':'';el.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.style.display='none',4500);}
 function node(tag,className,text){const el=document.createElement(tag);if(className)el.className=className;if(text!==undefined)el.textContent=String(text);return el;}
@@ -15,31 +15,37 @@ async function api(path,method='GET',data,extraHeaders={}){
   let reply;try{reply=await res.json();}catch{throw Error('服务器未返回 JSON');}
   if(!res.ok){
     if(res.status===401&&!path.startsWith('/api/auth/'))clearLogin();
+    if(reply.error==='password_change_required'&&state.me){state.mustChangePassword=true;authUi(true);}
     const hint=res.status===429?'尝试过于频繁，请稍后再试（服务器已限速）':reply.error||`HTTP ${res.status}`;
     throw Object.assign(Error(hint),{status:res.status});
   }
   return reply;
 }
 function authUi(active){
-  $('auth-card').hidden=active;$('dashboard').hidden=!active;
-  $('actor').textContent=state.me?.label||'未登录';$('role').textContent=active?'网页管理员':'账号密码登录';
+  const restricted=active&&state.mustChangePassword;
+  $('auth-card').hidden=active;$('dashboard').hidden=!active||restricted;$('forcePasswordPanel').hidden=!restricted;
+  $('activationProof').hidden=!state.activationSecretRequired;$('forceBootstrapSecret').required=restricted&&state.activationSecretRequired;
+  $('actor').textContent=state.me?.label||'未登录';$('role').textContent=restricted?'必须先修改初始密码':active?'网页管理员':'账号密码登录';
   $('logout').hidden=!active;
-  document.querySelectorAll('.nav-item,[data-go]').forEach(el=>el.disabled=!active);
+  document.querySelectorAll('.nav-item,[data-go]').forEach(el=>el.disabled=!active||restricted);
 }
 function clearLogin(){
   activeUpload?.abort();selectedFiles=[];pickGeneration++;
   if($('detailDialog').open)$('detailDialog').close();$('detailBody').replaceChildren();
-  state.csrfToken='';state.me=null;state.skills=[];state.projects=[];state.devices=[];
+  state.csrfToken='';state.me=null;state.mustChangePassword=false;state.activationSecretRequired=false;$('forcePasswordForm').reset();$('forcePasswordError').textContent='';state.skills=[];state.projects=[];state.devices=[];
   $('issuedValue').textContent='';$('issuedToken').hidden=true;$('passwordForm').reset();
   $('skillsGrid').replaceChildren();$('tokensList').replaceChildren();authUi(false);
 }
 async function acceptSession(session){
   state.csrfToken=session.csrfToken;state.me={label:session.username,role:'admin'};
-  authUi(true);await refresh();
+  state.mustChangePassword=Boolean(session.mustChangePassword);state.activationSecretRequired=Boolean(session.activationSecretRequired);
+  authUi(true);if(state.mustChangePassword){$('forceNewPassword').focus();return;}
+  await refresh();
 }
 async function login(username,password){
   const session=await api('/api/auth/login','POST',{username,password});
   await acceptSession(session);
+  if(state.mustChangePassword)$('forceCurrentPassword').value=password;
 }
 async function loadAuthStatus(){
   const status=await api('/api/auth/status');state.authStatus=status;
@@ -68,7 +74,7 @@ async function sensitiveApi(path,method,data){
   }
 }
 async function refresh(){const [projects,skills,cap]=await Promise.all([api('/api/projects'),api('/api/catalog'),api('/api/capabilities')]);state.capabilities=cap;showLimits(cap.limits);state.projects=projects.projects;state.skills=skills.skills;if(state.me.role==='admin'){try{state.devices=(await api('/api/devices')).devices;}catch{state.devices=[];}}render();}
-function view(name){state.view=name;document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.view===name));document.querySelectorAll('.view').forEach(el=>el.hidden=el.id!=='view-'+name);$('crumb').textContent={library:'技能仓库',publish:'发布技能',devices:'客户端设备',security:'访问权限'}[name]||name;if(name==='devices')renderDevices();if(name==='security')renderSecurity();}
+function view(name){if(!state.me||state.mustChangePassword)return;state.view=name;document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.view===name));document.querySelectorAll('.view').forEach(el=>el.hidden=el.id!=='view-'+name);$('crumb').textContent={library:'技能仓库',publish:'发布技能',devices:'客户端设备',security:'访问权限'}[name]||name;if(name==='devices')renderDevices();if(name==='security')renderSecurity();}
 function projectOptions(select,placeholder=false){const current=select.value;select.replaceChildren();if(placeholder){const opt=node('option',null,'全部项目');opt.value='';select.append(opt);}for(const p of state.projects){const opt=node('option',null,p.title+' · '+p.slug);opt.value=p.slug;select.append(opt);}if([...select.options].some(x=>x.value===current))select.value=current;}
 function render(){ $('numSkills').textContent=state.skills.length;$('numProjects').textContent=state.projects.length;$('numDevices').textContent=state.me.role==='admin'?state.devices.length:'—';projectOptions($('projectFilter'),true);projectOptions($('publishProject'));renderSkills();renderDevices();renderSecurity();}
 function renderSkills(){const q=$('search').value.trim().toLowerCase();const p=$('projectFilter').value;const skills=state.skills.filter(s=>(!p||s.project===p)&&`${s.slug} ${s.project} ${s.description}`.toLowerCase().includes(q));const grid=$('skillsGrid');grid.replaceChildren();if(!skills.length)return grid.append(node('div','empty','没有匹配的 Skill。可先创建项目，再发布 SKILL.md。'));
@@ -184,10 +190,25 @@ $('setupForm').onsubmit=async e=>{
   try{
     const username=$('setupUsername').value,password=$('setupPassword').value;
     if(password!==$('setupPasswordAgain').value)throw Error('两次输入的密码不一致');
-    const headers=state.authStatus?.legacyConversion?{Authorization:'Bearer '+$('legacyAdminToken').value.trim()}:{};
+    const proof=state.authStatus?.legacyConversion?$('legacyAdminToken').value.trim():$('setupSecret').value;
+    const headers=state.authStatus?.legacyConversion?{Authorization:'Bearer '+proof}:{};
     await api('/api/auth/setup','POST',{secret:$('setupSecret').value,username,password},headers);
-    $('setupForm').reset();await login(username,password);await loadAuthStatus();toast('管理员账号已创建');
+    $('setupForm').reset();await login(username,password);if(state.activationSecretRequired)$('forceBootstrapSecret').value=proof;
+    await loadAuthStatus();toast('管理员已初始化，请先修改初始密码');
   }catch(error){toast(error.message,true);}finally{$('setupBtn').disabled=false;}
+};
+$('forceLogout').onclick=()=>$('logout').click();
+$('forcePasswordForm').onsubmit=async e=>{
+  e.preventDefault();$('forcePasswordSubmit').disabled=true;$('forcePasswordError').textContent='';
+  try{
+    if($('forceNewPassword').value!==$('forceNewPasswordAgain').value)throw Error('两次输入的新密码不一致');
+    const username=state.me.label;
+    await api('/api/auth/password','POST',{currentPassword:$('forceCurrentPassword').value,newPassword:$('forceNewPassword').value,
+      ...(state.activationSecretRequired?{bootstrapSecret:$('forceBootstrapSecret').value}:{})});
+    clearLogin();$('usernameInput').value=username;toast('初始密码已修改，请使用新密码重新登录');
+  }catch(error){
+    $('forcePasswordError').textContent=error.message==='activation_secret_required'?'首次改密需要正确的初始化 Secret；旧实例转换请填写原管理员 Token。':error.message;
+  }finally{$('forcePasswordSubmit').disabled=false;}
 };
 $('passwordForm').onsubmit=async e=>{
   e.preventDefault();const button=e.target.querySelector('button[type="submit"]');button.disabled=true;

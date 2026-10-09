@@ -14,7 +14,7 @@ export function recoverySql({hash,version,username,revokeTokens=false}){
   if(!/^scrypt\$16384\$8\$5\$[a-f0-9]{32}\$[a-f0-9]{64}$/.test(hash)||!Number.isSafeInteger(version)||version<1)throw Error('Invalid recovery parameters');
   if(username!==undefined)username=validateUsername(username);
   const when=new Date().toISOString(),guard=`EXISTS(SELECT 1 FROM web_admin WHERE id=1 AND password_version=${version+1} AND password_hash=${quote(hash)})`;
-  const statements=[`UPDATE web_admin SET password_hash=${quote(hash)},password_version=password_version+1,updated_at=${quote(when)}${username===undefined?'':',username='+quote(username)} WHERE id=1 AND password_version=${version};`];
+  const statements=[`UPDATE web_admin SET password_hash=${quote(hash)},password_version=password_version+1,must_change_password=0,activation_secret_hash=NULL,updated_at=${quote(when)}${username===undefined?'':',username='+quote(username)} WHERE id=1 AND password_version=${version};`];
   // The migration's password-change trigger deletes all browser sessions inside the UPDATE.
   if(revokeTokens)statements.push(`UPDATE access_tokens SET revoked_at=${quote(when)} WHERE credential_type='api' AND revoked_at IS NULL AND ${guard};`);
   const detail=JSON.stringify({revokeApiTokens:revokeTokens});

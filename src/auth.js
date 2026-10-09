@@ -1,7 +1,7 @@
 /** Single-admin browser sessions and independently scoped API credentials. */
 import {randomBytes,timingSafeEqual} from 'node:crypto';
 import {tokenHash,randomId,slug,now} from './core.js';
-import {hashPassword,verifyPassword,validatePassword,validateUsername} from './password.js';
+import {hashPassword,hashInitialPassword,INITIAL_ADMIN_PASSWORD,verifyPassword,validatePassword,validateUsername} from './password.js';
 import {problem} from '../public/lib/policy.js';
 const one=(db,sql,...a)=>db.prepare(sql).bind(...a).first();
 const run=(db,sql,...a)=>db.prepare(sql).bind(...a).run();
@@ -61,16 +61,22 @@ function csrf(request,u){
 async function log(env,actor,action,detail={}){
   await run(env.DB,'INSERT INTO audit_log (id,actor,action,detail,created_at) VALUES (?,?,?,?,?)',randomId('a_'),actor,action,JSON.stringify(detail),now());
 }
-export async function webSession(request,env,{mutating=true}={}){
+async function requireActivatedAccount(env){
+  const user=await one(env.DB,'SELECT must_change_password FROM web_admin WHERE id=1');
+  if(user?.must_change_password)throw problem('password_change_required',403);
+}
+export async function webSession(request,env,{mutating=true,allowPasswordChange=false}={}){
   const value=cookieValue(request);if(!value)throw problem('Sign in required',401);
   const hash=await tokenHash(value),time=Date.now();
-  const row=await one(env.DB,`SELECT s.*,a.username,a.token_id FROM web_sessions s JOIN web_admin a ON a.id=s.admin_id
+  const row=await one(env.DB,`SELECT s.*,a.username,a.token_id,a.must_change_password,a.activation_secret_hash FROM web_sessions s JOIN web_admin a ON a.id=s.admin_id
     JOIN access_tokens t ON t.id=a.token_id WHERE s.session_hash=? AND s.password_version=a.password_version
     AND s.expires_at>? AND s.last_seen_at>? AND t.credential_type='web' AND t.revoked_at IS NULL`,hash,time,time-SESSION_IDLE);
   if(!row)throw problem('Session expired or revoked; sign in again',401);
   const u={id:row.token_id,label:row.username,role:'admin',projects:[],authType:'session',sessionHash:hash,
-    csrfToken:row.csrf_token,reauthenticatedAt:row.reauthenticated_at,expiresAt:row.expires_at,passwordVersion:row.password_version};
+    csrfToken:row.csrf_token,reauthenticatedAt:row.reauthenticated_at,expiresAt:row.expires_at,passwordVersion:row.password_version,
+    mustChangePassword:Boolean(row.must_change_password),activationSecretRequired:Boolean(row.activation_secret_hash)};
   if(mutating&&!['GET','HEAD','OPTIONS'].includes(request.method.toUpperCase()))csrf(request,u);
+  if(u.mustChangePassword&&!allowPasswordChange)throw problem('password_change_required',403);
   if(row.last_seen_at<time-60000)await run(env.DB,'UPDATE web_sessions SET last_seen_at=? WHERE session_hash=?',time,hash);
   return u;
 }
@@ -83,6 +89,7 @@ export async function principal(request,env){
     const row=await one(env.DB,`SELECT id,label,role,project_scope,can_publish,expires_at,last_used_at FROM access_tokens
       WHERE token_hash=? AND credential_type='api' AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>?)`,await tokenHash(h.slice(7)),now());
     if(!row)throw problem('Invalid, expired or revoked token',401);
+    await requireActivatedAccount(env);
     let projects;try{projects=JSON.parse(row.project_scope);}catch{throw problem('Invalid permission scope',503);}
     if(!Array.isArray(projects)||projects.some(p=>typeof p!=='string'))throw problem('Invalid permission scope',503);
     if(!row.last_used_at||Date.parse(row.last_used_at)<Date.now()-600000)
@@ -105,6 +112,7 @@ async function throttle(request,env,action,perIp=10,global=50){
   }
 }
 export async function issueToken(env,label,role,projects,days=90){
+  await requireActivatedAccount(env);
   if(typeof label!=='string'||!label.trim()||label.length>80)throw problem('Token label required');
   if(!['client','publisher'].includes(role))throw problem('New API tokens must be client or publisher; use the website for administration');
   if(!Array.isArray(projects)||!projects.length||projects.length>50)throw problem('Choose 1–50 projects');
@@ -117,6 +125,7 @@ export async function issueToken(env,label,role,projects,days=90){
   return {id,token,role,projects,expiresAt};
 }
 async function createAccount(request,env,body){
+  if(!body||typeof body!=='object'||Array.isArray(body))throw problem('Expected setup object');
   if(await one(env.DB,'SELECT id FROM web_admin WHERE id=1'))throw problem('Administrator is already initialized',409);
   const legacy=await one(env.DB,"SELECT id FROM access_tokens WHERE role='admin' AND credential_type='api' LIMIT 1");
   if(legacy){
@@ -127,16 +136,21 @@ async function createAccount(request,env,body){
     if(!env.BOOTSTRAP_SECRET||env.BOOTSTRAP_SECRET.length<24)throw problem('BOOTSTRAP_SECRET must be configured for first initialization',503);
     if(typeof body.secret!=='string'||!equal(await tokenHash(body.secret),await tokenHash(env.BOOTSTRAP_SECRET)))throw problem('Invalid bootstrap secret',403);
   }
-  const username=validateUsername(body.username),hashed=await hashPassword(body.password),date=now();
+  const username=validateUsername(body.username??'admin'),password=body.password===undefined?INITIAL_ADMIN_PASSWORD:body.password;
+  const hashed=await hashInitialPassword(password),date=now();
+  // A public default password must not let an outsider win the first password-change race.
+  // Keep only a digest of the already-verified setup proof; no secret is returned to a login client.
+  const proof=password===INITIAL_ADMIN_PASSWORD
+    ?await tokenHash(legacy?request.headers.get('authorization').slice(7):body.secret):null;
   // The fixed account PK and transaction permit exactly one winner under simultaneous setup.
   try{await env.DB.batch([
     env.DB.prepare(`INSERT INTO access_tokens (id,label,token_hash,role,project_scope,created_at,credential_type)
       VALUES ('t_web_owner',?,?,'admin','[]',?,'web')`).bind(username,await tokenHash(secret()),date),
-    env.DB.prepare(`INSERT INTO web_admin (id,username,password_hash,token_id,created_at,updated_at)
-      VALUES (1,?,?,'t_web_owner',?,?)`).bind(username,hashed,date,date),
+    env.DB.prepare(`INSERT INTO web_admin (id,username,password_hash,token_id,created_at,updated_at,must_change_password,activation_secret_hash)
+      VALUES (1,?,?,'t_web_owner',?,?,1,?)`).bind(username,hashed,date,date,proof),
     env.DB.prepare('INSERT INTO audit_log (id,actor,action,detail,created_at) VALUES (?,?,?,?,?)').bind(randomId('a_'),username,'web_admin_created','{}',date),
   ]);}catch(e){if(String(e.message).includes('UNIQUE'))throw problem('Administrator is already initialized',409);throw e;}
-  return {initialized:true,username};
+  return {initialized:true,username,mustChangePassword:true,activationSecretRequired:Boolean(proof)};
 }
 async function createSession(request,env,user){
   const raw=secret(),hash=await tokenHash(raw),csrfToken=secret(),time=Date.now();
@@ -149,7 +163,7 @@ async function createSession(request,env,user){
   // Bound retained sessions. Login rotates the cookie and never exposes its value in JSON.
   await run(env.DB,`DELETE FROM web_sessions WHERE session_hash NOT IN
     (SELECT session_hash FROM web_sessions ORDER BY created_at DESC,rowid DESC LIMIT 10)`);
-  return {cookie:sessionCookie(request,raw,SESSION_TTL/1000),body:{username:user.username,role:'admin',csrfToken,expiresAt:time+SESSION_TTL}};
+  return {cookie:sessionCookie(request,raw,SESSION_TTL/1000),body:{username:user.username,role:'admin',csrfToken,expiresAt:time+SESSION_TTL,mustChangePassword:Boolean(user.must_change_password),activationSecretRequired:Boolean(user.activation_secret_hash)}};
 }
 export async function authRoutes(request,env,readJson,json){
   const path=new URL(request.url).pathname,method=request.method.toUpperCase();
@@ -162,7 +176,7 @@ export async function authRoutes(request,env,readJson,json){
     return json({initialized:Boolean(user),legacyConversion:!user&&Boolean(legacy),setupEnabled:!user&&(Boolean(legacy)||Boolean(env.BOOTSTRAP_SECRET?.length>=24))});
   }
   if(method==='GET'&&path==='/api/auth/session'){
-    const u=await webSession(request,env);return json({username:u.label,role:'admin',csrfToken:u.csrfToken,expiresAt:u.expiresAt});
+    const u=await webSession(request,env,{allowPasswordChange:true});return json({username:u.label,role:'admin',csrfToken:u.csrfToken,expiresAt:u.expiresAt,mustChangePassword:u.mustChangePassword,activationSecretRequired:u.activationSecretRequired});
   }
   if(method!=='POST')throw problem('Not found',404);
   sameOrigin(request);
@@ -184,11 +198,11 @@ export async function authRoutes(request,env,readJson,json){
   }
   if(path==='/api/auth/logout'){
     // Expired cookies may still be cleared, but a live session requires its CSRF token.
-    let u;try{u=await webSession(request,env,{mutating:false});}catch(e){if(e.status!==401)throw e;}
+    let u;try{u=await webSession(request,env,{mutating:false,allowPasswordChange:true});}catch(e){if(e.status!==401)throw e;}
     if(u){csrf(request,u);await run(env.DB,'DELETE FROM web_sessions WHERE session_hash=?',u.sessionHash);}
     const res=json({ok:true});res.headers.set('Set-Cookie',sessionCookie(request,'',0));return res;
   }
-  const u=await webSession(request,env);
+  const u=await webSession(request,env,{allowPasswordChange:path==='/api/auth/password'});
   if(path==='/api/auth/reauth'){
     await throttle(request,env,'reauth',5,20);const b=await readJson(request,8192);
     const user=await one(env.DB,'SELECT * FROM web_admin WHERE id=1');
@@ -203,13 +217,17 @@ export async function authRoutes(request,env,readJson,json){
     const user=await one(env.DB,'SELECT * FROM web_admin WHERE id=1');
     if(!await verifyPassword(b.currentPassword,user.password_hash))throw problem('Current password is incorrect',401);
     if(b.currentPassword===b.newPassword)throw problem('Choose a different new password');
+    if(user.must_change_password&&user.activation_secret_hash){
+      if(typeof b.bootstrapSecret!=='string'||!equal(await tokenHash(b.bootstrapSecret),user.activation_secret_hash))
+        throw problem('activation_secret_required',403);
+    }
     const hash=await hashPassword(b.newPassword);
-    const changed=await run(env.DB,`UPDATE web_admin SET password_hash=?,password_version=password_version+1,updated_at=?
+    const changed=await run(env.DB,`UPDATE web_admin SET password_hash=?,password_version=password_version+1,must_change_password=0,activation_secret_hash=NULL,updated_at=?
       WHERE id=1 AND password_hash=? AND password_version=?`,hash,now(),user.password_hash,u.passwordVersion);
     if(!changed.meta.changes)throw problem('Account changed concurrently; sign in again',409);
     // The database trigger invalidates ALL web sessions. API tokens are intentionally independent.
     await log(env,user.username,'password_changed');
-    const res=json({ok:true,sessionsRevoked:true,apiTokensRevoked:false});res.headers.set('Set-Cookie',sessionCookie(request,'',0));return res;
+    const res=json({ok:true,mustChangePassword:false,sessionsRevoked:true,apiTokensRevoked:false});res.headers.set('Set-Cookie',sessionCookie(request,'',0));return res;
   }
   if(path==='/api/auth/revoke-all-tokens'){
     recent(u);const b=await readJson(request,1024);

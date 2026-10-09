@@ -40,8 +40,13 @@ try{
     if(data.csrfToken)csrf=data.csrfToken;return data;
   }
   const password='Native isolated test password 12345';
-  await api('/api/auth/setup','POST',{secret:config.vars.BOOTSTRAP_SECRET,username:'native-admin',password});
-  await api('/api/auth/login','POST',{username:'native-admin',password});
+  await api('/api/auth/setup','POST',{secret:config.vars.BOOTSTRAP_SECRET,username:'native-admin'});
+  const initial=await api('/api/auth/login','POST',{username:'native-admin',password:'lanchenglin'});
+  assert.equal(initial.mustChangePassword,true);
+  assert.equal((await fetch(url+'/api/catalog',{headers:{Cookie:cookie}})).status,403);
+  await api('/api/auth/password','POST',{currentPassword:'lanchenglin',newPassword:password,bootstrapSecret:config.vars.BOOTSTRAP_SECRET});
+  const activated=await api('/api/auth/login','POST',{username:'native-admin',password});
+  assert.equal(activated.mustChangePassword,false);
   assert.match(cookie,/^csh_dev_session=/);
   assert.equal((await api('/api/auth/session')).username,'native-admin');
   await api('/api/projects','POST',{slug:'devops',title:'Native test'});
@@ -68,7 +73,7 @@ try{
   assert.ok(!recovery.stdout.includes('Native recovered test password'));
   await api('/api/auth/login','POST',{username:'native-admin',password:'Native recovered test password 24680'});
   await api('/api/auth/logout','POST',{});
-  console.log('PASS: native workerd scrypt, password setup/login/rotation/logout/recovery CLI, scoped publisher + reader, D1 migrations, 7 MiB R2 upload, 3-agent install, idempotence and cleanup');
+  console.log('PASS: native workerd scrypt, default login/forced activation/rotation/logout/recovery CLI, scoped publisher + reader, D1 migrations, 7 MiB R2 upload, 3-agent install, idempotence and cleanup');
 }catch(error){console.error(logs);throw error;}
 finally{
   if(child&&child.exitCode===null){try{process.platform==='win32'?child.kill():process.kill(-child.pid,'SIGTERM');}catch{}await new Promise(r=>{if(child.exitCode!==null)return r();const t=setTimeout(r,5000);child.once('exit',()=>{clearTimeout(t);r();});});if(child.exitCode===null){try{process.platform==='win32'?child.kill('SIGKILL'):process.kill(-child.pid,'SIGKILL');}catch{}}}

@@ -36,9 +36,29 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             page.locator('#setupPanel').wait_for(state='visible');page.locator('#setupPanel summary').click()
             page.locator('#setupSecret').fill(creds['bootstrapSecret'])
             page.locator('#setupUsername').fill(creds['username'])
-            page.locator('#setupPassword').fill(creds['password']);page.locator('#setupPasswordAgain').fill(creds['password'])
+            assert page.locator('#setupPassword').input_value() == 'lanchenglin'
             page.locator('#setupBtn').click()
-            page.locator('#dashboard').wait_for(state='visible')
+            page.locator('#forcePasswordPanel').wait_for(state='visible')
+            assert page.locator('#dashboard').is_hidden()
+            page.keyboard.press('Escape')
+            assert page.locator('#forcePasswordPanel').is_visible()
+            page.reload();page.locator('#forcePasswordPanel').wait_for(state='visible')
+            assert page.locator('[data-view="security"]').is_disabled()
+            assert page.evaluate("async () => (await fetch('/api/catalog')).status") == 403
+            for width in [390, 320]:
+                page.set_viewport_size({'width':width,'height':844})
+                assert page.evaluate('document.documentElement.scrollWidth') <= width+2
+            page.set_viewport_size({'width':1440,'height':1000})
+            page.locator('#forceCurrentPassword').fill('lanchenglin')
+            page.locator('#forceBootstrapSecret').fill('incorrect-proof')
+            page.locator('#forceNewPassword').fill(creds['password']);page.locator('#forceNewPasswordAgain').fill(creds['password'])
+            page.locator('#forcePasswordSubmit').click()
+            page.locator('#forcePasswordError').filter(has_text='初始化 Secret').wait_for()
+            assert page.locator('#dashboard').is_hidden()
+            page.locator('#forceBootstrapSecret').fill(creds['bootstrapSecret'])
+            page.locator('#forcePasswordSubmit').click();page.locator('#auth-card').wait_for(state='visible')
+            page.locator('#usernameInput').fill(creds['username']);page.locator('#passwordInput').fill(creds['password'])
+            page.locator('#authBtn').click();page.locator('#dashboard').wait_for(state='visible')
             assert page.evaluate('document.cookie').find('csh_dev_session') == -1
             assert page.evaluate("sessionStorage.getItem('csh-token')") is None
             page.reload();page.locator('#dashboard').wait_for(state='visible')
@@ -104,7 +124,7 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             assert page.locator('#dashboard').is_hidden()
             assert not errors,errors
             browser.close()
-        print('PASS: Chromium password setup/login, HttpOnly session reload, publisher issuance, ZIP upload/edit/download, password change/logout, unsafe ZIP rejection and mobile layout')
+        print('PASS: Chromium default password, mandatory first change (refresh/Escape/API rejection), HttpOnly session reload, publisher issuance, ZIP upload/edit/download, password change/logout, unsafe ZIP rejection and mobile layout')
     finally:
         server.terminate()
         try: server.wait(timeout=5)

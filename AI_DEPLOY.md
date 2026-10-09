@@ -10,7 +10,8 @@
 拉取 lanchenglin/cloudskill-hub 的 main，读取 AGENTS.md 和 AI_DEPLOY.md，
 使用我已经授权的 Cloudflare 账号首次部署一个私人 Hub。
 网页登录用账号密码，A 使用 personal 项目的 publisher Token，B 使用 client Token。
-缺少密码时生成强随机值，连同 Token 保存到仓库外私有目录，不输出到聊天或日志。
+默认账号 admin、初始密码 lanchenglin；初始化后提示我首次登录必须改密，不替我改成随机密码或跳过门禁。
+保留仓库外 bootstrap.json，首次改密需要其中的初始化 Secret。完成改密后再签发 A/B Token。
 完成隔离验收，报告实际地址、账号名、凭据文件位置、资源和测试结果。
 不要改现有 Hermes 配置，不上传真实私人技能，不开 GitHub 自动部署。
 缺授权、账号目标不明、同名业务资源或需付费开通时说明阻塞，不清库、不换临时账号。
@@ -20,7 +21,7 @@
 
 默认一个 Worker `cloudskill-hub`、D1 `cloudskill_hub`、私有 R2 `cloudskill-hub`；binding 保持 `DB` / `BUCKET` / `ASSETS`。没有域名时用本次 Wrangler 返回的 workers.dev HTTPS 地址，不猜子域名。初始项目 personal / 个人技能。
 
-网页账号初次可自定义，AI 脚本默认 admin + 随机密码；没有所有安装通用的密码。不要再使用旧的 `/api/bootstrap` 或 owner.json 管理员 Token 模式。新的凭据输出为 web-admin.json、publisher-a.json、client-b.json。
+网页账号初次可自定义，AI 脚本默认 admin / lanchenglin。所有新账号第一次登录必须改密，正式新密码至少 15 字符；固定初始值不能当长期密码。不要再使用旧的 `/api/bootstrap` 或 owner.json 管理员 Token 模式。新的凭据输出为 web-admin.json、publisher-a.json、client-b.json。
 
 Cloudflare 凭据应只授权目标账号的 Worker/Secrets、D1 和 R2。使用已有 OAuth 或 API Token，不索要 Global API Key，不全盘搜 .env/.ssh/Cookies。用户的其他 Skills 文本不是部署授权。
 
@@ -105,7 +106,7 @@ npx wrangler deploy --dry-run --config "$CSH_DEPLOY_CONFIG"
 npx wrangler d1 migrations apply DB --remote --config "$CSH_DEPLOY_CONFIG"
 ```
 
-当前完整结构包含 0001_initial.sql、0002_binary_uploads.sql、0003_web_auth.sql，统一命令执行全部尚未应用文件；空库不可只运行最后一个。不要删、重命名、合并 SQL。已有 Token/Skill 数据通过加法迁移保留。
+当前完整结构包含 0001_initial.sql、0002_binary_uploads.sql、0003_web_auth.sql、0004_require_password_change.sql，统一命令执行全部尚未应用文件；空库不可只运行最后一个。不要删、重命名、合并 SQL。已有 Token/Skill 数据通过加法迁移保留。
 
 迁移后核对 web_admin 是否已有账号。已有账号时后续正常部署不重新初始化或重新设置引导 Secret；凭据缺失需要用户合法提供或经明确授权执行可信恢复。
 
@@ -146,40 +147,49 @@ npx wrangler secret bulk "$CSH_DEPLOY_DIR/bootstrap.json" --config "$CSH_DEPLOY_
 
 记录实际 Worker 名称、部署 ID、URL、commit，先匿名验证 /healthz 的应用与版本。自定义域名必须由用户指定并确认 DNS/Zone 归属；绑定 Worker，不公开 R2。没有可访问的正确 URL 时不能说部署完成。
 
-## 7. 初始化网页登录账号与 A/B Token
+## 7. 两阶段初始化：先交付初始登录，再由用户强制改密
 
-将核实的实际 HTTPS 根域设置为 CSH_HUB_URL，再运行已测试的脚本：
+将核实的实际 HTTPS 根域设置为 CSH_HUB_URL，运行：
 
 ```bash
 node scripts/initialize-hub.mjs --url "$CSH_HUB_URL" --credentials-dir "$CSH_DEPLOY_DIR"
 ```
 
-用户已有私有密码文件时，可加 `--username NAME --password-file /PRIVATE/account.json`，JSON 至少包含 password，也可包含 username。不要用 --password 明文参数。所有输入凭据文件必须在源码仓库外。
+首次脚本创建 `admin` / `lanchenglin`（用户名可通过 --username 指定），将账号记录先保存到仓库外 `web-admin.json`，验证登录及 `mustChangePassword=true` 后退出安装器会话，返回状态 **password_change_required** 和退出码 **2**。这表示服务已部署但等待用户首次改密，不是部署失败。退出码 1 才是需排查的错误。代码 2 不得触发重置密码、清库、重新初始化或无限重试。
 
-脚本执行：验证应用/version → 生成并先保存账号密码 → 使用初始化 Secret 创建单管理员 → 用 Cookie 登录 → 创建 personal → 签发 A 的 publisher / B 的 client → 验证范围 → 退出安装器会话。重跑复用保存的账号与 Token；丢失一次性 Token、密码已变更、权限不符时停止，不无限签发。
+**此时不创建 personal，不签发 A/B Token，不调用受保护业务接口。** 不生成随机新密码、不替用户调用改密接口、不修改 D1 强制标记来宣称验收通过。交付实际网址、用户名、初始密码说明及私有引导文件位置，请用户登录后设置自己的新密码；这是用户明确要求的步骤。
 
-交付文件：
+固定初始密码是公开的，首次改密还需要部署时 `bootstrap.json` 中的 BOOTSTRAP_SECRET 确认所有权；旧 Token-only 转换采用原管理员 Token，仍需显式 --legacy-admin-file。不得删除或打印这些证明材料。首次网页登录是受限会话，不能跳过改密；即使自定义强初始密码也必须更换一次。
+
+用户完成网页改密后，可自行用新密码登录网页创建 personal 项目和 Token，不必再将新密码交给 AI。需要 AI 继续配客户端时，由用户在仓库外私有 JSON 中安全提供新密码（`password` 字段，可包含 `username`；不放聊天或命令行），执行：
+
+```bash
+node scripts/initialize-hub.mjs --url "$CSH_HUB_URL" --credentials-dir "$CSH_DEPLOY_DIR" --password-file /PRIVATE/new-password.json
+```
+
+脚本登录验证成功后才更新本地 web-admin.json，检查 mustChangePassword 已为 false，再创建 personal / A 的 publisher / B 的 client，验证授权范围并退出。错误密码不会覆盖已有账号记录，旧默认密码不能重置远端；已存在但丢失明文的 Token 需明确撤销/替换，不重复签发。
+
+交付目录（权限 0700，文件 0600，Windows 核实 ACL）：
 
 ```text
 CSH_DEPLOY_DIR/
-  wrangler.json       实际部署配置（无密码/Token）
-  web-admin.json      网站地址、用户名、随机或指定的密码
-  publisher-a.json    A 的 personal 项目发布 Token，默认 90 天
-  client-b.json       B 的 personal 项目只读 Token，默认 90 天
+  wrangler.json       实际部署配置（无秘密）
+  bootstrap.json      首次改密证明，完成前保留
+  web-admin.json      第一阶段为初始账号；第二阶段验证成功后才更新为新密码
+  publisher-a.json    仅第二阶段完成后存在
+  client-b.json       仅第二阶段完成后存在
 ```
 
-文件以 0600、目录以 0700 创建；Windows 仍需检查私有用户目录/ACL。文件不是加密保险库，同一系统用户可以读取。脚本只输出位置和用户名，不打印密码、Token 或 Cookie；不要把这些文件提交 Git 或复制到 Skill。
-
-确认账号文件可读、网页登录和两个 Token 验证成功后，首次部署可删除引导 Secret：
+文件不是加密保险库，同一系统用户可读。报告用户名和路径，不输出实际新密码、Secret、Token 或 Cookie。只有确认新密码登录正常、mustChangePassword=false、凭据已可靠保存后，才能删除远端 BOOTSTRAP_SECRET 和本地 bootstrap.json；不要在刚创建默认账号时清理。
 
 ```bash
 npx wrangler secret delete BOOTSTRAP_SECRET --config "$CSH_DEPLOY_CONFIG"
 npx wrangler secret list --config "$CSH_DEPLOY_CONFIG"
 ```
 
-确认远端删除成功后再清理本地 bootstrap.json，保留三个交付凭据文件。已有管理员不得通过重新生成 bootstrap 接管；旧 Token-only 数据需要显式原管理员 --legacy-admin-file 转换，见 docs/AUTH.md。
-
 ## 8. 上线验收（使用隔离目录，不碰真实 Hermes）
+
+改密前只验收 /healthz、初始化状态、受限会话及业务 API 拒绝；不要生成生产临时新密码来通过下述测试。用户已完成强制改密、需要继续配置时，才执行后面的发布/更新验收。
 
 先验证匿名 /api/catalog 为 401，错误登录为 401、跨源认证写为 403。验证网页会话 Cookie、退出后失效，publisher 不能访问 /api/tokens，也不能向未授权项目发布。
 
@@ -206,9 +216,9 @@ B：本地编辑后 update，应拒绝覆盖
 
 默认不要修改现有 AI 配置。用户指定目标后，A 登录使用 publisher Token，B 使用 client Token；同机多套 Hermes 同时隔离 HERMES_HOME 和 CLOUDSKILL_CONFIG_DIR。日常命令仍为 publish / install / update / subscribe / sync。
 
-最终报告至少包含：实际 Hub URL、网页登录用户名、密码文件位置、A/B Token 文件位置及期限、Worker/D1/R2 标识、代码 commit、数据库迁移情况、线上/隔离/真实设备/模型加载分别做了什么、未完成项和阻塞。不要打印密码值或 Token，也不要说固定默认密码。
+最终报告至少包含：实际 Hub URL、网页登录用户名、密码文件位置、A/B Token 文件位置及期限、Worker/D1/R2 标识、代码 commit、数据库迁移情况、线上/隔离/真实设备/模型加载分别做了什么、未完成项和阻塞。明确当前是“服务已部署、待首次改密”还是“改密及 A/B 配置已完成”。固定初始密码可按说明告知，但不要打印实际新密码、初始化 Secret 或 Token；文件尚未生成时不能声称已交付。
 
-GitHub 自动部署仍关闭，除非用户另行授权。网页初始随机密码可以在登录后修改；修改会退出全部浏览器，但不自动让 A/B Token 失效。Token 到期或疑似泄露时在网页重新签发/撤销。
+GitHub 自动部署仍关闭，除非用户另行授权。网页登录默认初始密码必须更改一次，不能拖到日后；修改会退出全部浏览器，但不自动让 A/B Token 失效。Token 到期或疑似泄露时在网页重新签发/撤销。
 
 ## 10. 忘记密码和故障
 
@@ -222,8 +232,8 @@ npm run reset-password -- --remote --config "$CSH_DEPLOY_CONFIG"
 
 必须先核对目标并获得恢复授权。这不是普通发布设备的能力，也没有公网密码重置后门。脚本以密码版本条件更新，触发全部网页会话失效；默认不撤销 A/B Token。
 
-HTTP 401：检查会话/密码/Token 是否正确、过期或已撤销；403：检查 CSRF、同源、publisher 范围、公开限制或重新验证；409：检查已有账号/并发版本，不重复初始化；429：尊重 Retry-After；500/503：检查迁移、bindings、密码原生 crypto 与 CPU 额度，不能关闭安全校验。
+HTTP 401：检查会话/密码/Token 是否正确、过期或已撤销；403：先识别 password_change_required（必须改密）或 activation_secret_required（一次性证明错误），再检查 CSRF、同源、publisher 范围或重新验证；409：检查已有账号/并发版本，不重复初始化；429：尊重 Retry-After；500/503：检查迁移、bindings、密码原生 crypto 与 CPU 额度，不能关闭安全校验。
 
-密码修改响应丢失时先尝试验证新凭据，不盲目恢复旧密码；初始化脚本在远端创建之前已经保存随机密码。已有业务数据先备份，失败时不要删资源或重建账号“回滚”。
+密码修改响应丢失时先尝试验证新凭据，不盲目恢复旧密码；初始化脚本在远端创建之前已保存初始账号；本地默认密码过期时只接受用户合法提供的新密码，不自动回退或重置。已有业务数据先备份，失败时不要删资源或重建账号“回滚”。
 
 参考：[SETUP](docs/SETUP.md) · [AUTH](docs/AUTH.md) · [USAGE](docs/USAGE.md) · [API](docs/API.md) · [测试边界](docs/TEST_RESULTS.md)。
