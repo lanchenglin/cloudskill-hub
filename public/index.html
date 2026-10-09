@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="description" content="CloudSkill Hub — 私有 Agent Skills 管理平台" />
+  <title>CloudSkill Hub · 私人技能中心</title>
+  <link rel="stylesheet" href="/style.css" />
+  <script src="/app.js" defer></script>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-icon">✳</div><div><strong>CloudSkill<span>Hub</span></strong><small>PERSONAL AGENT SKILLS</small></div></div>
+    <div class="nav-caption">工作空间</div>
+    <nav>
+      <button class="nav-item active" data-view="library"><span>◈</span> 技能仓库</button>
+      <button class="nav-item" data-view="publish"><span>⇧</span> 上传技能</button>
+      <button class="nav-item" data-view="devices"><span>▣</span> 客户端设备</button>
+      <button class="nav-item" data-view="security"><span>◇</span> 访问权限</button>
+    </nav>
+    <div class="side-spacer"></div>
+    <div class="aside-info"><span class="live-dot"></span><div><b>Cloudflare 原生</b><small>Workers · D1 · R2</small></div></div>
+    <div class="user-area"><div class="avatar">C</div><div><b id="actor">尚未授权</b><small id="role">私人部署</small></div><button id="logout" title="退出本页">↗</button></div>
+  </aside>
+  <main class="main-area">
+    <header class="topbar"><div class="breadcrumb">Workspace <span>/</span> <strong id="crumb">技能仓库</strong></div><div class="topbar-actions"><span class="pill">● PRIVATE BY DEFAULT</span><a href="https://agentskills.io" target="_blank" rel="noopener noreferrer">Agent Skills ↗</a></div></header>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <section id="auth-card" class="auth-panel">
+      <div class="eyebrow">SELF-HOSTED / ZERO EXTERNAL DATABASES</div>
+      <h1>一个技能库，<br/><em>连接你的所有 AI 工具。</em></h1>
+      <p>管理标准 Agent Skills，向 Claude Code、Codex 和 Hermes Agent 私有分发。凭据仅保存在本页会话中。</p>
+      <div class="auth-form">
+        <label for="tokenInput">访问令牌（Bearer Token）</label>
+        <input id="tokenInput" type="password" placeholder="csh_..." autocomplete="off" />
+        <button id="authBtn" class="primary">连接私人 Hub →</button>
+      </div>
+      <details class="setup"><summary>首次部署？点击初始化管理员</summary><p>先配置 Cloudflare Secret <code>BOOTSTRAP_SECRET</code>，再输入此 Secret。初始化成功后，管理员令牌只显示一次，请离线保存。</p><input id="setupSecret" type="password" placeholder="BOOTSTRAP_SECRET" autocomplete="off" /><button id="setupBtn" class="secondary">创建管理员令牌</button></details>
+    </section>
+    <div id="dashboard" hidden>
+      <section id="view-library" class="view">
+        <div class="hero"><div><div class="eyebrow">YOUR PRIVATE AGENT CAPABILITY LAYER</div><h1>技能仓库<span class="mark">.</span></h1><p>统一保存、检索与更新 AI 编程工具的 Skills。</p></div><div class="hero-icon">✳</div></div>
+        <div class="stats"><div><small>已收录技能</small><b id="numSkills">0</b><span>个可复用能力</span></div><div><small>项目空间</small><b id="numProjects">0</b><span>独立分类与权限</span></div><div><small>设备接入</small><b id="numDevices">—</b><span>多端安装 / 更新</span></div></div>
+        <div class="section-title"><div><h2>我的技能</h2><p>通过项目筛选和关键词快速找到所需 Skills</p></div><button class="primary" data-go="publish">＋ 上传 Skill</button></div>
+        <div class="toolbar"><input id="search" placeholder="搜索名称 / 描述 / 项目 ..." aria-label="搜索技能" /><select id="projectFilter" aria-label="筛选项目"><option value="">全部项目</option></select></div>
+        <div id="skillsGrid" class="skill-grid"></div>
+      </section>
+      <section id="view-publish" class="view" hidden>
+        <div class="page-title"><div class="eyebrow">PUBLISH / VERSIONED DELIVERY</div><h1>发布新技能</h1><p>可选择一个 <code>SKILL.md</code> 文件或整个 Skill 文件夹，保留 references、scripts 等附属资源。</p></div>
+        <div class="two-col">
+          <form id="publishForm" class="panel">
+            <label>目标项目</label><select id="publishProject" required></select>
+            <label>选择技能资源</label>
+            <div class="upload-row"><label class="upload-btn" for="skillFile">＋ 单个 SKILL.md<input id="skillFile" type="file" accept=".md,text/markdown" /></label><label class="upload-btn" for="skillFolder">▤ 整个技能目录<input id="skillFolder" type="file" webkitdirectory multiple /></label></div>
+            <div id="pickedFiles" class="pick-result">尚未选择文件</div>
+            <label class="checkbox-row"><input type="checkbox" id="makePublic" /> 公开此技能（允许未登录的工具发现和下载）</label>
+            <button type="submit" class="primary wide">验证并发布版本 →</button>
+          </form>
+          <div class="panel helper"><h3>支持的技能格式</h3><pre>---
+name: my-skill
+description: A clear trigger and purpose.
+metadata:
+  hermes:
+    tags: [devops]
+---
+# My Skill
+
+Step-by-step instructions...</pre><p>同一份 <code>SKILL.md</code> 可安装到 Claude Code / Codex / Hermes。每次发布保留不可变的历史版本。</p><p>单技能不超过 200 个文件，合计 6 MiB；暂不支持网页直接上传 ZIP，使用目录选择或 CLI 发布。</p></div>
+        </div>
+      </section>
+      <section id="view-devices" class="view" hidden><div class="page-title"><div class="eyebrow">CONNECTED ENVIRONMENTS</div><h1>客户端设备</h1><p>客户端同步后主动上报状态，不需要服务器远程操控设备。</p></div><div class="panel"><h3>已登记设备</h3><div id="deviceList" class="rows"></div></div><div class="panel command"><h3>客户端命令</h3><pre>cloudskill login https://skills.yourdomain.com
+cloudskill subscribe coding --agents claude,codex,hermes
+cloudskill sync
+cloudskill check</pre></div></section>
+      <section id="view-security" class="view" hidden><div class="page-title"><div class="eyebrow">SECURITY / LEAST PRIVILEGE</div><h1>访问权限</h1><p>为每台设备单独签发只读令牌，支持限定项目和立即撤销。</p></div>
+        <div class="two-col"><form id="tokenForm" class="panel"><h3>签发访问令牌</h3><label>令牌备注</label><input id="tokenLabel" required maxlength="80" placeholder="例如 WSL-Dev / Windows-Codex" /><label>角色</label><select id="tokenRole"><option value="client">客户端（只读）</option><option value="admin">管理员（读写）</option></select><label>可访问项目（客户端必须选择）</label><div id="tokenScope" class="scope-picker"></div><button type="submit" class="primary wide">生成令牌 →</button><div id="issuedToken" class="issued" hidden><b>请立即复制，此后无法再次查看：</b><code id="issuedValue"></code><button type="button" class="secondary" id="copyIssued">复制</button></div></form>
+        <form id="projectForm" class="panel"><h3>新建项目分类</h3><label>项目英文 ID（不可更改）</label><input id="newProjectSlug" pattern="[a-z0-9]+(-[a-z0-9]+)*" placeholder="devops" required maxlength="64"/><label>展示名称</label><input id="newProjectTitle" placeholder="运维自动化" required maxlength="100"/><button class="secondary wide" type="submit">＋ 创建项目</button><p>建议创建 devops、coding、video、automation 等项目，每个设备只授予必要权限。</p></form></div>
+        <div class="panel"><h3>令牌列表</h3><div id="tokensList" class="rows"></div></div>
+      </section>
+    </div>
+  </main>
+</div>
+<dialog id="detailDialog"><form method="dialog"><button class="dialog-close" aria-label="关闭">×</button></form><div id="detailBody"></div></dialog>
+</body>
+</html>

@@ -1,0 +1,23 @@
+name: Test CloudSkill Hub
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check syntax and run integration tests
+        run: npm run check
+      - name: Verify public archive with Python zipfile
+        run: |
+          node --input-type=module -e "import {writeFileSync} from 'node:fs'; import {zipFiles} from './src/zip.js';import {encode64} from './src/core.js'; writeFileSync('/tmp/cloudskill-test.zip',zipFiles({'SKILL.md':encode64(new TextEncoder().encode('---\\nname: example\\ndescription: Example\\n---\\n# Example\\n'))}));"
+          python - <<'PY'
+          import zipfile
+          with zipfile.ZipFile('/tmp/cloudskill-test.zip') as z:
+              assert z.testzip() is None
+              assert 'SKILL.md' in z.namelist()
+          PY
