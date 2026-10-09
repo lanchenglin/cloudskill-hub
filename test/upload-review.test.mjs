@@ -95,17 +95,20 @@ test('browser checks server-owned visibility rather than trusting cached pending
   } finally { f.close(); }
 });
 
-test('synchronous R2 failure cancels the input stream instead of leaving a blocked pump', {timeout:5000}, async () => {
+test('R2 early failure cancels every upload pipe for synchronous and asynchronous errors', {timeout:5000}, async () => {
   const pkg = await pack(sources());
-  let cancelled = false;
-  const stream = new ReadableStream({
-    pull(controller) { controller.enqueue(new Uint8Array([0x50])); },
-    cancel() { cancelled = true; },
-  });
-  const request = new Request(config.url, {method:'PUT', headers:{'Content-Type':'application/zip'}, body:stream, duplex:'half'});
-  await assert.rejects(putVerified(request, {put(){throw Error('storage unavailable');}}, 'test.zip', pkg.manifest, DEFAULT_LIMITS, 'resume-safe'), /storage unavailable/);
-  await new Promise(resolve => setTimeout(resolve, 20));
-  assert.equal(cancelled, true, 'storage failure must release the source stream');
+  for (const asynchronous of [false,true]) {
+    let cancelled = false;
+    const stream = new ReadableStream({
+      pull(controller) { controller.enqueue(new Uint8Array([0x50])); },
+      cancel() { cancelled = true; },
+    });
+    const request = new Request(config.url, {method:'PUT', headers:{'Content-Type':'application/zip'}, body:stream, duplex:'half'});
+    const storage = {put(){if(asynchronous)return Promise.reject(Error('storage unavailable'));throw Error('storage unavailable');}};
+    await assert.rejects(putVerified(request, storage, 'test.zip', pkg.manifest, DEFAULT_LIMITS, 'resume-safe'), /storage unavailable/);
+    assert.equal(cancelled, true, 'storage failure must release the source stream before returning');
+    assert.equal(request.body.locked, false, 'all upstream pipes must have settled');
+  }
 });
 
 test('--force really restores a deleted managed skill even when the cloud digest is unchanged', async () => {

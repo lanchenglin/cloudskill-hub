@@ -63,15 +63,18 @@ export async function putVerified(request,bucket,key,manifest,limits,name){
   const verifier=archiveVerifier(manifest,limits,name),abort=new AbortController();
   // R2 requires a known-length stream. In Workers FixedLengthStream supplies this without buffering.
   const fixed=typeof globalThis.FixedLengthStream==='function'?new globalThis.FixedLengthStream(manifest.archiveBytes):new TransformStream();
-  const pump=request.body.pipeThrough(verifier.stream).pipeTo(fixed.writable,{signal:abort.signal});
+  // Track both pipes explicitly. An implicit pipeThrough can leave the source locked on Node 22.
+  const feed=request.body.pipeTo(verifier.stream.writable,{signal:abort.signal});
+  const pump=verifier.stream.readable.pipeTo(fixed.writable,{signal:abort.signal});
   // Normalize synchronous binding errors into the same cancellation path as async R2 failures.
   const write=Promise.resolve().then(()=>bucket.put(key,fixed.readable,{sha256:manifest.archiveDigest,httpMetadata:{contentType:'application/zip'}}));
-  try{await Promise.all([pump,write]);if(!verifier.metadata)throw problem('Archive validation did not complete');return verifier.metadata;}
+  try{await Promise.all([feed,pump,write]);if(!verifier.metadata)throw problem('Archive validation did not complete');return verifier.metadata;}
   catch(error){
     abort.abort(error);
     // An R2 failure before it acquires the readable can strand a backpressured write.
     // Cancel that readable too; cancellation of a reader already owned by R2 is harmlessly refused.
     await fixed.readable.cancel(error).catch(()=>{});
-    await Promise.allSettled([pump,write]);throw error;
+    await verifier.stream.readable.cancel(error).catch(()=>{});
+    await Promise.allSettled([feed,pump,write]);throw error;
   }
 }
