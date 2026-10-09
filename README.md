@@ -1,234 +1,198 @@
 # CloudSkill Hub
 
-> 自托管、Cloudflare 原生、默认私有的 Agent Skills 仓库。**独立开源实现**，同时支持 Claude Code、OpenAI Codex、NousResearch Hermes Agent。
+> Cloudflare 原生、默认私有的 Agent Skills 仓库。中文网页管理 + 跨设备 CLI，面向 Claude Code、Codex 和 Hermes Agent。
 
-[![CI](https://img.shields.io/badge/tests-node--test-blue)](#测试)
+[![CI](https://github.com/lanchenglin/cloudskill-hub/actions/workflows/ci.yml/badge.svg)](https://github.com/lanchenglin/cloudskill-hub/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-CloudSkill Hub is an original, dependency-light implementation inspired by the **idea** of a private Skills registry. It does not copy the skillsgist source tree. Compatible interfaces are based on the open Agent Skills conventions and documented discovery endpoints.
+**v0.2.0：目录 / ZIP 上传、可配置上限、流式校验写入私有 R2，以及安全的多端更新。** 不再把大包转换成一个 Base64 JSON 请求。原 v0.1.0 数据保留，新客户端同时读取两种版本格式。
 
-## 特性
+CloudSkill Hub is an independent implementation inspired by the idea of a private Skills registry; it does not depend on the skillsgist server or CLI. Public discovery follows documented Agent Skills conventions. See [LICENSE](LICENSE) and [upload design](docs/UPLOAD_V2.md).
 
-- **独立云端 Hub**：Cloudflare Worker + D1 + R2；无独立服务器或数据库服务。
-- **网页管理后台**：中文/响应式页面、项目分类、搜索、上传文件夹与 `SKILL.md`、编辑、历史版本、回滚。
-- **私有优先**：默认不公开。管理员令牌、限定项目的客户端令牌、即时撤销、设备状态和审计记录。
-- **Agent Skills**：保留完整 `SKILL.md`（包括 Hermes metadata）、reference、script、assets 等文件。
-- **Hermes Agent**：直接安装至 `~/.hermes/skills/<slug>`，并提供符合公开发现示例的 `/.well-known/skills/index.json`。
-- **Claude Code / Codex**：安装至 `~/.claude/skills/<slug>` 与 `~/.codex/skills/<slug>`，尊重环境变量自定义路径。
-- **跨设备更新**：各设备独立订阅项目，`check`、`sync`、`update`；完整性校验，保护本地修改，更新前备份与失败回滚。
-- **公开技能互通**：`/.well-known/skills/index.json`、单个 `SKILL.md`/资源文件、`/.well-known/agent-skills/index.json` 和不可变 ZIP 包。
-- **无 Node 运行时依赖**：Worker 与客户端由现代 JavaScript + WebCrypto / Node built-ins 编写。仅部署时使用 Wrangler。
+## 现在可以做什么
 
-**关于私有兼容性**：Hermes/第三方 Skills 工具不一定能携带本仓库的私有 Bearer Token。因此公开 Skill 可使用原生 well-known 发现；**私有 Skill 统一通过 `cloudskill` CLI** 分发。项目不向公开索引透露私有名称或描述。
+- 中文响应式网页：项目分类、搜索、上传单个 `SKILL.md` / 目录 / ZIP、编辑、历史版本、回滚、ZIP 下载。
+- 默认私有：管理员负责发布；只读客户端令牌按项目授权，每台设备可独立签发和撤销。
+- Windows / Linux / WSL 客户端：安装到 Claude、Codex、Hermes；按设备订阅、检查和更新，不静默覆盖本地修改或未知来源的同名技能。
+- 保留完整 `SKILL.md`、Hermes metadata、references、scripts、assets 和模板。ZIP 中的脚本执行权限可保留；浏览器目录上传无法取得 Unix 执行位。
+- 上传会话：预检查、进度、取消、同源鉴权、文件与整包 SHA-256 / CRC32 校验。只有校验完成并提交成功，版本才可被安装。
+- 并发保护：上传基于指定旧版本，新版本已经发布时拒绝覆盖；重复提交同一个会话不会创建重复版本。
+- 公开互通：well-known 文件发现和 discovery 0.2 archive 索引，只列出显式公开的技能。私有技能通过 `cloudskill` CLI 分发。
+- 一套 Workers + D1 + R2，无需 VPS、Docker、Redis 或 PostgreSQL。定时回收过期、取消及无引用的上传对象，不删除已发布版本。
+
+**不是技能执行服务，也不是通用网盘。** 本 Hub 不执行上传脚本、不运行模型，也不保证第三方客户端能用自身更新命令管理由 `cloudskill` 安装的技能。
+
+## 文件上传限制
+
+下面是 **v2 网页 / CLI 默认上传链路** 的上限，单位为二进制 MiB / KiB：
+
+| 项目 | 默认 | 当前代码允许配置的最高值 |
+|---|---:|---:|
+| 一个 Skill 的原始文件总大小 | 50 MiB | 64 MiB |
+| 单个文件 | 20 MiB | 32 MiB |
+| 一个 Skill 的文件数（含 `SKILL.md`） | 1000 | 2000 |
+| 输入 ZIP / 规范化传输 ZIP 大小 | 55 MiB | 70 MiB |
+| `SKILL.md` | 256 KiB | 固定 |
+| 文件相对路径 UTF-8 字节数 | 256 | 固定 |
+| 目录深度 | 16 | 固定 |
+| 单条目 ZIP 解压倍率 | 200 倍 | 固定 |
+
+`wrangler.jsonc` 的 `vars` 配置 `MAX_SKILL_FILES`、`MAX_SKILL_BYTES`、`MAX_FILE_BYTES`、`MAX_ARCHIVE_BYTES`，修改后重新部署。网页和 CLI 从 `/api/capabilities` 读取实际值；并非网页可直接修改。必须满足单文件 ≤ 总文件 ≤ ZIP 大小，超出代码安全上限的配置会报错，不会默默放行。
+
+每个管理员令牌最多 **3 个同时活跃的上传会话、每小时 20 次会话创建**；会话有效期 **1 小时**。这些值暂为服务端常量。上传超时为 5 分钟，部分中断的文件需要重新传完整 ZIP；已完整传好但未确认发布的 ZIP 可复用会话，**不是字节级断点续传**。
+
+v1 JSON 发布接口为了兼容旧脚本仍保留 **200 文件 / 总计 6 MiB / 单文件 4 MiB / JSON 请求 9 MiB**，不会因 v2 的新设置而放宽。迁移与安全边界详见 [UPLOAD_V2.md](docs/UPLOAD_V2.md)。
 
 ## 架构
 
 ```text
-Browser Admin ────────┐
-                      │ HTTPS / Bearer authentication
-CloudSkill CLI ───────┼── Cloudflare Worker
-  (Windows/WSL/Linux) │    ├── D1 (projects, tokens, skill versions, devices, audit)
-                      │    └── R2 (immutable JSON artifacts + ZIP archives)
-                      │
-  ├── ~/.claude/skills/<name>/
-  ├── ~/.codex/skills/<name>/
-  └── ~/.hermes/skills/<name>/
-
-Public endpoints: /.well-known/skills/index.json
-                  /.well-known/agent-skills/index.json
-Private endpoints: /api/*  (token required)
+Browser / cloudskill CLI
+  ├─ 读取服务器限制、目录或 ZIP 本地预检查
+  ├─ 本地解压、生成规范 ZIP + 文件清单
+  └─ Authorization: Bearer / HTTPS
+           ↓
+Cloudflare Worker
+  ├─ D1：授权、项目、版本、上传会话、设备、审计
+  ├─ 流式核验 ZIP 布局、长度、每文件和整包摘要
+  └─ R2 私有桶：不可变 ZIP + 小型 manifest
+           ↓  全部校验通过，再提交版本
+cloudskill install / update / sync
+  ├─ Claude Code
+  ├─ Codex
+  └─ Hermes Agent
 ```
 
-## Cloudflare 部署（首次）
+默认是 **经 Worker 流式写入 R2 binding**，不是浏览器直连 R2 的预签名 URL。不需要额外配置 S3 Access Key 或桶级浏览器 CORS。Worker 不解压输入 ZIP、不把整个新格式包读成 Base64；浏览器和 CLI 仍会为 ZIP 检查、摘要计算使用有上限的本地内存。
 
-要求 Node.js >=22、Cloudflare 账号，且已开通 Workers / D1 / R2。请先检查实际计费、绑定和区域限制。
+大包、较高并发场景应在实际 Cloudflare 套餐上压测 CPU、内存、请求和存储配额；应用允许 50 MiB 不等于免费套餐已通过生产性能验收。未实现不限大小、分片直传、杀毒扫描或全站总存储配额。
+
+## 首次部署 Cloudflare
+
+要求 **Node.js 22.16 或以上**，已启用 Workers / D1 / R2 的 Cloudflare 账号。
 
 ```bash
-# 将本代码放进自己的 Git 仓库后：
-git clone https://github.com/YOUR_ACCOUNT/cloudskill-hub.git
+git clone https://github.com/lanchenglin/cloudskill-hub.git
 cd cloudskill-hub
 npm install
+npm run check
 npx wrangler login
 
-# 初始化 Cloudflare 资源：
 npx wrangler d1 create cloudskill_hub --no-update-config
 npx wrangler r2 bucket create cloudskill-hub
 ```
 
-将 D1 命令返回的 `database_id` 写入 `wrangler.jsonc`，确认 D1 名称、R2 桶名与当前 Cloudflare 账号一致。
-
-生成仅用于**首次引导**的高强度 Secret（不要提交 Git）：
+将 D1 返回的 `database_id` 填入 `wrangler.jsonc`，核对数据库、R2 名称及账号。R2 桶必须保持私有，不要启用公开桶域名。
 
 ```bash
+# 生成首次初始化用的随机值，随后粘贴到 secret put 的交互提示
 openssl rand -hex 32
 npx wrangler secret put BOOTSTRAP_SECRET
-```
 
-运行 `secret put` 时粘贴刚才生成的值。完成数据库迁移及部署：
-
-```bash
+# 必须先执行迁移，再部署代码
 npm run db:migrate
 npm run deploy
 ```
 
-打开部署后的 Worker URL：
+打开 Worker 域名，在登录页展开“首次部署？点击初始化管理员”，填写 Secret，立即保存只显示一次的管理员令牌。登录后创建项目，再为不同设备签发有项目范围的只读客户端令牌。发布设备另用管理员令牌，不要在所有机器上共享管理员凭据。
 
-1. 在登录页展开“首次部署？点击初始化管理员”。
-2. 粘贴 `BOOTSTRAP_SECRET`，点击创建管理员。
-3. **立即保存只出现一次的管理员 token**，重新登录时需要它。
-4. 在 Cloudflare Workers 设置中配置自定义域名，例如 `skills.example.com`。
-5. 新建 `devops`、`coding` 等项目；在“访问权限”为每台设备签发不同的客户端令牌，限制可访问项目。
+在 Worker 设置中添加自己的域名。为 `/api/bootstrap` 及敏感 API 配置访问和速率限制；初始化完成后可以删除 `BOOTSTRAP_SECRET`。丢失全部管理员凭据需要从可信 D1 管理通道恢复，不要在公网添加免认证重置入口。
 
-**安全提醒**：在 Cloudflare WAF 中给 `/api/bootstrap` 设置 IP 限制和速率限制。首次引导后，该 API 永久停止签发新管理员，即使 Secret 泄露也不能再次引导；如丢失全部管理员令牌，需要通过受信任的 D1 管理通道恢复，不要在公网开启管理员重置入口。可在首次引导后删除 BOOTSTRAP_SECRET，但下次灾备初始化要重新设置。
+`wrangler.jsonc` 包含每 5 分钟执行的上传清理 Cron。GitHub Actions 自动部署保持默认关闭；只有配置 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID` Secrets，并将 `ENABLE_CLOUDFLARE_DEPLOY` 仓库 Variable 设为 `true` 才会启用原有自动部署工作流。
 
-## 客户端安装（Windows / Linux / WSL）
+## 从 v0.1.0 升级
 
-从仓库源码运行，无需发布 npm：
+先备份 D1 与 R2，并保留自己已填写的 `database_id`、绑定和域名设置；不要把示例配置覆盖到真实账号。
 
 ```bash
-# 此目录下
-npm link
-cloudskill --help
+git pull --ff-only
+npm install
+npm run check
+npm run db:migrate    # 包括新的 0002_binary_uploads.sql
+npm run deploy
+npm link             # 每台使用 CLI 的机器也要更新源码并执行
+```
 
-# 在管理页面签发客户端 token，再将它输入 CLI 登录提示
+新增迁移只增加字段和上传会话表，旧版本及旧 R2 文件不会被重写。**旧 CLI 读取 v2 大包时会收到 426 并提示升级**；新 CLI 可以读取旧包。`cloudskill publish ... --legacy` 仅用于显式发布旧格式小目录。部署顺序、灾备和回退限制见 [升级说明](docs/UPLOAD_V2.md#升级与回退)。
+
+## 使用客户端
+
+在源码目录运行 `npm link`，无需先将包发布到 npm：
+
+```bash
+cloudskill --help
 cloudskill login https://skills.example.com
 cloudskill whoami
+cloudskill limits
 cloudskill projects
 cloudskill list
-```
 
-非交互 CI 可通过环境变量传入令牌（不要在命令行参数或 Git 中硬编码）：
-
-```bash
-export CLOUDSKILL_TOKEN='csh_YOUR_SECRET'
-cloudskill login https://skills.example.com
-unset CLOUDSKILL_TOKEN
-```
-
-安装到三个 AI 工具：
-
-```bash
 cloudskill install devops/linux-audit --agents claude,codex,hermes
+cloudskill subscribe devops --agents claude,codex,hermes --skills '*'
+cloudskill sync --dry-run
+cloudskill sync
+cloudskill check
+cloudskill update
+cloudskill status
 ```
 
-分别为 Windows、WSL、Linux 服务器配置自己的订阅：
+发布支持目录与 ZIP，要求管理员令牌：
 
 ```bash
-# 例如一台开发机同步两个项目
-cloudskill subscribe devops --agents claude,codex,hermes --skills '*'
-cloudskill subscribe coding --agents claude,codex --skills code-review,test-helper
+cloudskill publish devops ./linux-audit
+cloudskill publish devops ./linux-audit.zip
+cloudskill publish devops ./linux-audit.zip --public
+cloudskill publish devops ./linux-audit.zip --private
 
-cloudskill sync --dry-run  # 预览
-cloudskill sync            # 安装/更新
-cloudskill check           # 识别云端版本变化和本地修改
-cloudskill update          # 更新本设备已经安装过的 Skills
-cloudskill status          # 设备清单上报 Hub
+# 检查或恢复完整上传会话（示例 id 请换成真实值）
+cloudskill uploads
+cloudskill uploads up_YOUR_SESSION_ID
+cloudskill publish devops ./linux-audit.zip --resume up_YOUR_SESSION_ID
+cloudskill cancel-upload up_YOUR_SESSION_ID
 ```
 
-默认支持全局技能目录：
+CLI 首次发布默认私有；未指定 `--public` / `--private` 时，更新已有技能保留原可见性。网页发布区的“公开”复选框是本次发布的明确选择，默认不勾选；编辑已存在技能时保留其可见性。
 
-| Agent | 目录 | 可自定义的环境变量 |
+一个 ZIP 对应一个 Skill，可包含一个最外层文件夹；其中需要根 `SKILL.md`。支持常见 STORE / DEFLATE ZIP，不支持加密 ZIP、ZIP64、多磁盘 ZIP、软链接或特殊文件。复制/打包时应排除 `.env`、`.git` 等隐藏内容。参考样例在 `examples/skills/devops-check/`。
+
+### 安装范围与本地保护
+
+| Agent | 默认全局目录 | 环境变量 |
 |---|---|---|
 | Claude Code | `~/.claude/skills` | `CLAUDE_CONFIG_DIR` |
 | Codex | `~/.codex/skills` | `CODEX_HOME` |
 | Hermes | `~/.hermes/skills` | `HERMES_HOME` |
 
-请勿用 Hub 直接覆盖 Hermes 自带或其他工具管理的同名技能。CLI 检查本地文件是否属于自己管理的安装；**未托管技能永不覆盖**。通过 `cloudskill` 安装的 Hermes 技能不会写入 Hermes 自己的 `.hub/lock.json`，后续请使用 `cloudskill update` 更新。Hermes 可以通过 `~/.hermes/config.yaml` 的 `skills.external_dirs` 读取共享技能，但该目录可能被 Hermes 写入，当前版本直接写入 Hermes 原生路径以减少不确定性。
+当前实现使用上述全局目录，保留 v0.1.0 路径约定。没有项目级安装或 SSH 远程操控。不同 Agent 版本的发现路径及加载行为需在所使用的实际客户端确认，文件安装测试不等于模型已执行技能。
 
-本地配置路径（Linux / WSL）为 `~/.config/cloudskill-hub/`，Windows 为 `%APPDATA%/cloudskill-hub/`；包含明文访问令牌，文件权限在类 Unix 系统限制为 `0600`。不要在共享系统账户或被不可信 AI 进程使用的 HOME 中保存管理员令牌。
+客户端不接管未知来源的同名技能、不自动执行脚本、不把本地改动静默覆盖。通过 `cloudskill` 安装的 Hermes 技能不写入 Hermes 自身的 `.hub/lock.json`；后续使用 `cloudskill update`。系统自带技能请使用原工具管理，避免混用更新器。
 
-## 发布技能
+配置/令牌默认保存于 Linux/WSL `~/.config/cloudskill-hub/` 或 Windows `%APPDATA%/cloudskill-hub/`。Unix 文件权限设为 `0600`，但同一系统用户运行的程序仍能读取明文令牌；Windows 要依赖账号隔离和文件 ACL，不宣称加密保险库。
 
-目录例子：
+v2 更新备份放在各 Agent 配置根下的 `.cloudskill-backups/`，**不放在可被 Agent 扫描的 `skills/` 目录**，并保持与安装目标在同一文件系统，以支持失败恢复。例如 `~/.hermes/.cloudskill-backups/`。备份暂无自动保留数量策略，需定期检查磁盘使用。
 
-```text
-my-skill/
-├── SKILL.md
-├── references/README.md
-├── scripts/run.sh
-└── assets/logo.png
-```
-
-`SKILL.md`：
-
-```markdown
----
-name: linux-audit
-description: Audit Linux systems and propose safe changes.
-version: 1.0.0
-metadata:
-  hermes:
-    tags: [linux, devops]
----
-# Linux Audit
-...
-```
-
-创建 `devops` 项目后，可以从网页上传目录，或使用管理员令牌在本地执行：
-
-```bash
-cloudskill publish devops ./my-skill            # 默认私有
-cloudskill publish devops ./my-skill --public   # 显式公开（谨慎）
-```
-
-后续重新上传创建新版本。内容完全相同不会重复创建版本；版本回滚会创建新的版本号，保留原先历史。
-
-## 第三方 Agent Skills / Hermes 发现
-
-只有显式设置为 `public` 的技能才出现在下列无需身份验证的接口：
+## 第三方 Skills / Hermes 互通
 
 ```text
-GET https://skills.example.com/.well-known/skills/index.json
-GET https://skills.example.com/.well-known/skills/<skill>/SKILL.md
-GET https://skills.example.com/.well-known/skills/<skill>/references/README.md
-GET https://skills.example.com/.well-known/agent-skills/index.json
+/.well-known/skills/index.json
+/.well-known/skills/<skill>/SKILL.md
+/.well-known/skills/<skill>/references/guide.md
+/.well-known/agent-skills/index.json
 ```
 
-`/.well-known/skills/index.json` 格式兼容开放的 `skills-handler` / Hermes well-known 发现模型；`/.well-known/agent-skills/index.json` 使用 Agent Skills discovery 0.2 archive 索引，含 SHA-256 和 ZIP。公开技能需跨项目唯一名称；私有技能可以在不同项目重名。
+这些公开入口保留，不会列出私有名称或描述。公开技能的历史 ZIP 摘要地址在该技能仍为公开时可以下载；改为私有后，匿名历史 ZIP 地址也会拒绝访问。已被他人下载的内容无法远程收回。
 
-Hermes 公共发现示例（具体行为取决于所用 Hermes 版本）：
+第三方 `skills` / Hermes 原生工具是否支持私有鉴权由其版本决定；本项目不把私有令牌放进 URL 来强行兼容。私有统一使用 `cloudskill install ... --agents hermes` 等命令。原生工具实际端到端发现和加载不是本仓库单元测试的保证。
+
+## 测试、文档与边界
 
 ```bash
-hermes skills search https://skills.example.com --source well-known
-hermes skills install well-known:https://skills.example.com/.well-known/skills/linux-audit
+npm run check                       # 语法 + 安全与集成测试，无 Cloudflare 凭据
+node scripts/worker-smoke.mjs        # npm install 后：真实本地 workerd/D1/R2
+python scripts/browser-smoke.py      # 另需 Playwright 与 Chromium
 ```
 
-**私有技能**：请执行 `cloudskill install devops/linux-audit --agents hermes`，不要尝试把 Bearer 令牌放到 URL 查询参数中。
+CI 包含 Ubuntu、Windows、原生本地 Workers 运行时及 Chromium 网页上传/编辑/下载检查。实际执行结果和测试范围见 [TEST_RESULTS.md](docs/TEST_RESULTS.md)，接口见 [API.md](docs/API.md)，工程设计见 [UPLOAD_V2.md](docs/UPLOAD_V2.md)。
 
-## 安全模型与限制
+历史版本、备份和审计记录会占用存储；默认不会自动删除已发布内容。上传的脚本和提示词仍可能恶意，安装前应审核，不能把 ZIP 结构验证当作内容安全扫描。尚未实现功能列于 [ROADMAP.md](docs/ROADMAP.md)。
 
-- 随机 192-bit 令牌，服务端只保存 SHA-256 摘要；支持单设备签发与撤销。
-- 私有项目通过显式授权项目列表隔离；客户端令牌只读，管理员可发布。
-- 无认证 Cookie，所有敏感 API 必须发送 Authorization: Bearer；不开放跨源 CORS。
-- 文件名拒绝绝对路径、`..`、软链接和任意隐藏路径段（避免意外上传 `.env` / `.ssh` 等）；每个 Skill 200 文件、6 MiB 原文、4 MiB 单文件。
-- 客户端对下载内容校验 SHA-256；完整本地目录指纹检测修改，备份至 `~/.config/cloudskill-hub/backups/` 后替换；失败恢复之前版本。
-- CLI 按项目与客户端分配安装范围，绝不自动删除其他 Skills；无后台守护进程，自动更新需使用系统 cron/Task Scheduler 调用 `cloudskill sync`。
-- 上传脚本和 Prompt 仍可能存在攻击/恶意指令：本项目不自动执行，但**没有实现技能内容安全扫描**，使用前应人工审核。
-- 当前首版只实现全局技能安装，暂无 SSH 远程操控或项目级目录安装；不内置 OAuth、团队账号密码登录、GitHub 导入、`.zip` 网页上传或管理员密码恢复。
-- Cloudflare Worker 免费层 CPU 限额可能不足以处理大 ZIP；较大的技能包建议使用 Workers Paid，并压测实际配额。
-- 前端没有外部 CDN，配置了 Content Security Policy；会话 token 暂存浏览器 `sessionStorage`，关闭会话即失效（服务端 token 本身仍有效直到撤销）。
-- `BOOTSTRAP_SECRET` 应足够随机，不少于 24 个字符；部署后建议为敏感路径启用 Cloudflare WAF 限速。
-
-## 更新与灾备
-
-- 数据库：定期导出 D1，操作之前使用 `wrangler d1 export`；先演练恢复。
-- 资源：R2 artifact/archives 不可变，用桶备份/复制策略备份到独立位置。
-- 同步：每台客户端安装状态在本地 `state.json` 与服务器心跳中分别保存。
-- 升级：保持 `migrations/` 只增不删，先备份后发布。
-- Wrangler Static Assets 启用 `run_worker_first`，确保 Worker 同时保护静态管理后台的安全响应头。GitHub Actions `deploy.yml` 默认关闭。配置 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID` 仓库 Secrets，并将仓库 Variables 的 `ENABLE_CLOUDFLARE_DEPLOY` 设为 `true` 后才会自动部署。
-
-## 测试
-
-```bash
-npm run check
-```
-
-使用 Node 22 内置的实验性 SQLite API 运行 D1 协议兼容测试，不需要真的访问 Cloudflare。包括服务端鉴权、项目级凭据、发布、版本、回滚、公开发现、Hermes 路径安装、完整性校验、本地编辑保护及多端同步。真实 Cloudflare Workers/D1/R2 的部署与 Hermes 客户端发现还需要在你的账号中单独做端到端验收。
-
-## 独立项目说明
-
-MIT 开源。实现方案参考但没有复制 [Qsnh/skillsgist](https://github.com/Qsnh/skillsgist) 的代码；公开发现接口参考 [Agent Skills](https://agentskills.io)、[Vercel skills-handler](https://github.com/vercel-labs/skills-handler) 和 [NousResearch Hermes Agent](https://github.com/NousResearch/hermes-agent) 的兼容约定。
-
-## 将代码推送到自己的 GitHub
-
-参见 [docs/PUBLISH_GITHUB.md](docs/PUBLISH_GITHUB.md)；测试报告见 [docs/TEST_RESULTS.md](docs/TEST_RESULTS.md)。
+实现思路参考 [skillsgist](https://github.com/Qsnh/skillsgist)、[Agent Skills](https://agentskills.io)、[skills-handler](https://github.com/vercel-labs/skills-handler) 和 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 的公开约定；项目本身为 MIT 独立实现。

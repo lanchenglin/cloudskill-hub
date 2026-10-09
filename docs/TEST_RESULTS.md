@@ -1,31 +1,36 @@
-# v0.1.0 test report (2026-10-09)
+# v0.2.0 测试报告 — 2026-10-09
 
-Environment: Node.js 22.16.0, Linux sandbox, Node experimental `node:sqlite` adapter used to simulate Cloudflare D1 query semantics, in-memory R2 object store.
+已验证代码提交：`34aa891021b0bbf32635f593eafe26e9cade5f05`（其后的文档提交不改变应用代码）。
 
-```
-$ npm run check
-8 tests passed, 0 failed
-```
+完整 CI：[Test CloudSkill Hub #3](https://github.com/lanchenglin/cloudskill-hub/actions/runs/37915051782)。该运行已完成，结论 **success**。
 
-Covered:
+| 环境 / 检查 | 实际结果 |
+|---|---|
+| Linux 本地 Node 22.16.0，`npm run check` | 33 通过、0 失败 |
+| GitHub Ubuntu，Node 22，语法与集成测试 | 通过 |
+| GitHub Windows，Node 22，语法与集成测试 | 通过 |
+| 原生本地 workerd + 本地 D1/R2 | 通过，7 MiB 文件二进制上传、迁移、三端目录安装、幂等发布 |
+| Chromium 网页流程 | 通过，ZIP 发布、编辑为 v2、固定版本下载与独立 ZIP 校验 |
+| 390 px / 320 px 窄屏布局 | 通过，无页面横向溢出；网页流程无 JS 异常 |
 
-1. Valid SKILL.md metadata and Hermes-specific YAML passthrough.
-2. Reject path traversal, hidden secret paths and invalid base64.
-3. Deterministic ZIP archive structural tests.
-4. YAML folded description handling.
-5. Private permissions, scoped client tokens, admin actions, public discovery, history and rollback.
-6. Public slug uniqueness and upload safety validation.
-7. Restrictive CSP on static dashboard HTML.
-8. Local Claude Code, Codex, Hermes installs, update detection, local modifications, backup and sync heartbeat.
+## 33 项自动化测试的范围
 
-Independent Python `zipfile.ZipFile.testzip()` verified ZIP data and UTF-8 filenames.
+- 原有鉴权、项目授权、发布、公开发现、版本、回滚、CSP、客户端安装和更新保持回归覆盖。
+- ZIP STORE / DEFLATE、单层目录包装、中文文件名、元数据和执行位保留、确定性包生成。
+- 路径穿越、隐藏敏感路径、软链接、特殊文件、加密、压缩炸弹、CRC/摘要不符、长度伪造、大小写冲突等拒绝路径。
+- v2 会话权限、准备/上传/提交阶段、完整性失败时不发布、幂等 finalize、会话恢复、并发版本冲突、过期/取消清理与已发布对象保护。
+- 7 MiB 文件跨越旧单文件限制；**完整 50 MiB + 1000 文件默认上限在模拟 D1/R2 环境验证**，不冒充生产大包压测。
+- CLI 从目录及 ZIP 发布，Claude/Codex/Hermes 目录安装、校验、新旧格式读取、本地编辑保护、提交响应丢失恢复及写安装清单失败后的文件恢复。
+- Python `zipfile` 独立检查网页下载 ZIP 的 CRC、编辑文本与中文 reference 内容，避免仅由同一实现自我验证。
 
-Not validated here:
+首轮 Chromium 测试捕获手机上传页网格被长命令撑宽的问题，修复后重跑全部四个 CI job 通过；没有删掉或跳过该断言。
 
-- Actual Cloudflare Workers / D1 / R2 production deployment (requires account access and Wrangler network installation).
-- Native Windows / WSL clients beyond Node's cross-platform path logic and Linux mock filesystem.
-- Live Hermes CLI `well-known` install and `npx skills` behavior against a deployed public domain.
-- Multi-admin concurrent publishing load tests, actual WAF settings, durability and recovery of Cloudflare resources.
-- Browser visual review in a real mobile/desktop browser.
+## 仍未验证 / 不应声称已完成
 
-Before claiming a production-ready stable release, run real end-to-end deployment and security verification on a private staging domain.
+- 用户真实 Cloudflare 账号的线上部署、WAF、真实套餐 CPU/内存/计费以及长期高并发。
+- 在实际 Claude Code / Codex / Hermes 会话中由模型发现并执行这些技能。当前三端测试是文件安装与保护机制测试。
+- 第三方 `npx skills` / Hermes 原生命令对线上域名的发现、安装和后续更新全链路。
+- iOS/Android 手机真机、所有浏览器版本、所有 WSL 挂载/权限组合。
+- 不同操作系统上的故障断电、灾备恢复演练和跨进程竞争压力测试。
+
+没有进行真实 Cloudflare 部署；CI 的 workerd 是临时本地实例，不需要生产 Secrets。旧 v0.1 测试日志保存为 `test-run-v0.1.0.log`，不是本版最新结果。新的完整输出以这里的 CI 链接及对应 job logs 为准。

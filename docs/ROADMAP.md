@@ -1,19 +1,24 @@
 # CloudSkill Hub roadmap
 
-## Implemented in v0.1
+## 已实现（v0.2.0）
 
-- Cloudflare Worker API, D1 metadata, R2 artifacts, Chinese browser dashboard.
-- Admin bootstrap, scoped client tokens, revocation, logs, device heartbeat.
-- Versioned publishing, immutable JSON/ZIP, rollback, public well-known discovery.
-- Cross-platform CLI for global Claude Code, Codex, Hermes Skill dirs.
-- Per-device subscriptions, safe updates, SHA-256 verification, local modification protection, backups.
+- 原有私人项目、按项目令牌、版本、回滚、设备心跳及公开发现。
+- 网页与 CLI 目录 / ZIP 发布，默认 50 MiB、单文件 20 MiB、1000 文件。
+- 可配置策略、客户端能力协商、规范 ZIP、本地解压预检查、Worker 流式验证及私有 R2 存储。
+- 上传会话、进度、取消、完整包已上传后的恢复、幂等提交及版本冲突保护。
+- 有界过期会话清理，不删除已发布版本；v1 数据和新客户端向后读取兼容。
+- 三端全局目录安装、本地修改保护、同文件系统的非技能目录备份与失败恢复。
+- Ubuntu / Windows 自动测试、原生本地 workerd 集成、Chromium 网页上传/编辑/下载与窄屏测试。
 
-## Next releases (not yet implemented)
+## 后续候选（尚未实现，不作为本版功能承诺）
 
-- Full project-scope install paths and Hermes trust integration.
-- Publish/import via GitHub & skills.sh with source provenance.
-- Browser ZIP upload, drag-and-drop, rich diff viewer and searchable full-text body.
-- OAuth / WebAuthn, fine-grained editor roles, approval workflow.
-- Vulnerability/prompt-injection checks and signed artifact provenance.
-- Device settings UI: subscription assignments, per-device package approvals.
-- Automated backup/restore drills and test against live Cloudflare + Hermes CLI.
+- R2 预签名直传、multipart 字节级断点续传、更大包的后台校验队列。
+- 全站/项目存储和流量配额、历史版本与客户端备份保留策略、账单预警。
+- Windows 原生安全凭据存储、CLI 跨进程锁、系统自动更新服务。
+- 项目级安装、Agent 版本发现路径矩阵、Hermes 原生管理器和第三方 skills CLI 的完整互操作验收。
+- GitHub 技能导入/发布、来源证明、签名包、版本差异预览与内容审核。
+- OAuth / WebAuthn、细粒度发布角色、审批、多用户设备配置。
+- 拖拽导入、批量多 Skill 导入、全文索引。
+- 真 Cloudflare 生产环境大包压测、WAF/配额验收和自动化灾备恢复演练。
+
+扩大上传量前，应优先压测真实 Worker CPU、R2 请求量和客户端内存，而不是仅增加常量。

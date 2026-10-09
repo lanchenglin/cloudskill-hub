@@ -2,7 +2,9 @@
 
 本项目不是 `Qsnh/skillsgist` 的 fork，源码独立实现，可直接使用 MIT 许可证公开发布。
 
-## 新建公开仓库
+当前正式仓库是 `lanchenglin/cloudskill-hub`。继续开发请从该仓库拉取，不要重新初始化并强推覆盖已有历史。
+
+## 新建其他公开仓库
 
 在准备好的项目文件夹中执行（先安装并登录 GitHub CLI）：
 
@@ -11,7 +13,7 @@ gh auth login
 
 git init -b main
 git add .
-git commit -m "feat: release standalone CloudSkill Hub v0.1.0"
+git commit -m "feat: release standalone CloudSkill Hub v0.2.0"
 
 gh repo create YOUR_ACCOUNT/cloudskill-hub --public --source=. --remote=origin --push
 ```
