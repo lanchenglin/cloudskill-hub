@@ -31,6 +31,7 @@ B、C：其他 Hermes 实例 / Claude Code / 已适配的客户端
 
 | 你要做什么 | 文档 |
 |---|---|
+| 交给 Hermes / Claude Code / Codex 执行首次部署 | [AI 部署执行手册](AI_DEPLOY.md) |
 | 还没有部署，准备首次安装 | [首次部署与初始化](docs/SETUP.md) |
 | A 发布、B 手动更新，多套 Hermes 共用 | [日常使用与多实例配置](docs/USAGE.md) |
 | 查看上传大小、ZIP 校验和会话规则 | [上传与存储设计](docs/UPLOAD_V2.md) |
@@ -39,6 +40,19 @@ B、C：其他 Hermes 实例 / Claude Code / 已适配的客户端
 | 区分源码提交与技能发布、配置可选自动部署 | [GitHub 与部署工作流](docs/PUBLISH_GITHUB.md) |
 
 首次使用的顺序是：**部署一个 Hub → 网页创建 `personal` 项目并签发令牌 → A/B 安装 CLI → A 发布 → B 首次安装 → B 按需更新。** 无需安装多个应用版本，也无需重复部署多个 Hub。
+
+## 交给 AI 部署
+
+拉取代码后，让 AI 读取根目录 `AGENTS.md` 和 [AI_DEPLOY.md](AI_DEPLOY.md)，按手册执行，不需要再自行整理一遍命令。仓库也提供 `CLAUDE.md` 入口。
+
+```text
+请按这个仓库的 AGENTS.md 和 AI_DEPLOY.md，使用我已授权的 Cloudflare 账号
+完成当前 main 的首次部署、初始化 personal 项目和隔离验收。
+凭据保存在仓库外私有目录，不开启 GitHub 自动部署、不修改现有 Hermes 配置。
+完成后给出实际 URL、凭据保存位置和验收结果；缺少授权或账号不明确时才向我确认。
+```
+
+AI 执行需要可用终端、网络及有效 Cloudflare 授权；首次浏览器授权/付费开通不能凭空跳过。生成这份说明本身不代表已部署。
 
 ## 日常操作
 
