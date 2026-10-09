@@ -64,7 +64,14 @@ export async function putVerified(request,bucket,key,manifest,limits,name){
   // R2 requires a known-length stream. In Workers FixedLengthStream supplies this without buffering.
   const fixed=typeof globalThis.FixedLengthStream==='function'?new globalThis.FixedLengthStream(manifest.archiveBytes):new TransformStream();
   const pump=request.body.pipeThrough(verifier.stream).pipeTo(fixed.writable,{signal:abort.signal});
-  const write=bucket.put(key,fixed.readable,{sha256:manifest.archiveDigest,httpMetadata:{contentType:'application/zip'}});
+  // Normalize synchronous binding errors into the same cancellation path as async R2 failures.
+  const write=Promise.resolve().then(()=>bucket.put(key,fixed.readable,{sha256:manifest.archiveDigest,httpMetadata:{contentType:'application/zip'}}));
   try{await Promise.all([pump,write]);if(!verifier.metadata)throw problem('Archive validation did not complete');return verifier.metadata;}
-  catch(error){abort.abort(error);await Promise.allSettled([pump,write]);throw error;}
+  catch(error){
+    abort.abort(error);
+    // An R2 failure before it acquires the readable can strand a backpressured write.
+    // Cancel that readable too; cancellation of a reader already owned by R2 is harmlessly refused.
+    await fixed.readable.cancel(error).catch(()=>{});
+    await Promise.allSettled([pump,write]);throw error;
+  }
 }

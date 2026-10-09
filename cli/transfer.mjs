@@ -2,7 +2,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import {openAsBlob} from 'node:fs';
-import {pack,unpack,verifyPackage,boundedBytes} from '../public/lib/archive.js';
+import {pack,unpack,verifyPackage,validatePackageManifest,boundedBytes} from '../public/lib/archive.js';
 import {HARD_LIMITS,safeFilePath,validateEntries,safeName} from '../public/lib/policy.js';
 import {frontmatter} from '../public/lib/metadata.js';
 import {request,catalog} from './manager.mjs';
@@ -56,6 +56,9 @@ export async function publishSource(config,project,input,options={}){
     if(!/^up_[a-f0-9]{48}$/.test(id))throw Error('Invalid upload session id');
     current=await request(config,'GET',`/api/uploads/${id}`);
     if(current.project!==project||current.slug!==name||current.manifest.archiveDigest!==pkg.manifest.archiveDigest)throw Error('Resume session does not match these exact source files');
+    // A retry must not silently keep an older public authorization when --private is requested.
+    if(options.visibility!==undefined&&current.visibility!==options.visibility)
+      throw Error('Resume visibility does not match the requested visibility. Cancel this session and publish again; upgrade the server if it does not report session visibility.');
     if(current.state==='committed')return current.result;
   }else{
     const latest=(await catalog(config)).find(s=>s.project===project&&s.slug===name);
@@ -80,7 +83,8 @@ export async function downloadPackage(config,bundle){
   const endpoint=bundle.downloadPath;
   if(!/^\/api\/projects\/[a-z0-9-]+\/skills\/[a-z0-9-]+\/versions\/\d+\/download$/.test(endpoint))throw Error('Unsafe archive download path');
   const m=bundle.manifest;
-  if(!m||bundle.digest!==m.archiveDigest||m.archiveBytes>HARD_LIMITS.maxArchiveBytes)throw Error('Invalid package metadata');
+  validatePackageManifest(m);
+  if(bundle.digest!==m.archiveDigest)throw Error('Invalid package metadata: version/archive digest mismatch');
   const response=await fetch(config.url+endpoint,{headers:{Authorization:`Bearer ${config.token}`},redirect:'error',signal:AbortSignal.timeout(300000)});
   if(!response.ok){await response.body?.cancel();throw Error('Archive download failed: HTTP '+response.status);}
   const advertised=Number(response.headers.get('content-length')||0);if(advertised&&advertised!==m.archiveBytes){await response.body?.cancel();throw Error('Archive length mismatch');}

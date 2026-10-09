@@ -5,7 +5,7 @@
 [![CI](https://github.com/lanchenglin/cloudskill-hub/actions/workflows/ci.yml/badge.svg)](https://github.com/lanchenglin/cloudskill-hub/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-**v0.2.0：目录 / ZIP 上传、可配置上限、流式校验写入私有 R2，以及安全的多端更新。** 不再把大包转换成一个 Base64 JSON 请求。原 v0.1.0 数据保留，新客户端同时读取两种版本格式。
+**v0.2.1：目录 / ZIP 上传、可配置上限、流式校验写入私有 R2，以及安全的多端更新。** 不再把大包转换成一个 Base64 JSON 请求。原 v0.1.0 数据保留，新客户端同时读取两种版本格式。
 
 CloudSkill Hub is an independent implementation inspired by the idea of a private Skills registry; it does not depend on the skillsgist server or CLI. Public discovery follows documented Agent Skills conventions. See [LICENSE](LICENSE) and [upload design](docs/UPLOAD_V2.md).
 
@@ -21,6 +21,12 @@ CloudSkill Hub is an independent implementation inspired by the idea of a privat
 - 一套 Workers + D1 + R2，无需 VPS、Docker、Redis 或 PostgreSQL。定时回收过期、取消及无引用的上传对象，不删除已发布版本。
 
 **不是技能执行服务，也不是通用网盘。** 本 Hub 不执行上传脚本、不运行模型，也不保证第三方客户端能用自身更新命令管理由 `cloudskill` 安装的技能。
+
+### v0.2.1 补充修复
+
+恢复上传时核对服务器记录的公开/私有权限，拒绝让旧公开会话覆盖当前 `--private` 选择；下载前先验证文件清单和大小，避免无效长度绕过读取上限。`sync` / `update` 会核对云端摘要和本地文件后跳过未变化的大包，显式 `install` 仍重新验证远端内容；`--dry-run` 不下载 ZIP、不写入安装目录。修复 R2 提前失败时的流取消，以及 `--force` 无法恢复已删除目录的问题。详细测试见 [测试报告](docs/TEST_RESULTS.md)。
+
+从 v0.2.0 升级到 v0.2.1 没有新增数据库迁移；仍需更新 Worker 与各设备 CLI。从 v0.1.0 升级则必须执行下文的 `0002` 迁移。
 
 ## 文件上传限制
 

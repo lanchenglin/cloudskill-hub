@@ -1,4 +1,4 @@
-import {unpack,verifyPackage,boundedBytes} from './lib/archive.js';
+import {unpack,verifyPackage,validatePackageManifest,boundedBytes} from './lib/archive.js';
 import {validateEntries,HARD_LIMITS,MiB} from './lib/policy.js';
 import {frontmatter} from './lib/metadata.js';
 import {publishBrowser} from './lib/browser-upload.js';
@@ -31,7 +31,7 @@ async function markdown(detail){
   return new TextDecoder().decode(Uint8Array.from(atob(detail.files['SKILL.md']),c=>c.charCodeAt(0)));
 }
 async function entriesOf(detail){
-  if(detail.format===2)return verifyPackage(await binary(detail.downloadPath,detail.manifest.archiveBytes),detail.manifest);
+  if(detail.format===2){validatePackageManifest(detail.manifest);return verifyPackage(await binary(detail.downloadPath,detail.manifest.archiveBytes),detail.manifest);}
   return Object.entries(detail.files).map(([name,data])=>({name,blob:new Blob([Uint8Array.from(atob(data),c=>c.charCodeAt(0))]),mode:420}));
 }
 async function details(s){

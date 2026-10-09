@@ -65,7 +65,7 @@ async function main(){const [command,...args]=process.argv.slice(2);
     const allowed=new Set((await request(config,'GET','/api/projects')).projects.map(p=>p.slug));
     for(const item of todo){const [project,name]=item.split('/');if(!allowed.has(project)){out.push({project,name,status:'skipped',reason:'token no longer has project access'});continue;}
       const agents=Object.values(state.installed).filter(r=>r.project===project&&r.slug===name).map(r=>r.agent);
-      out.push(...await install(config,project,name,agents,options(args)));}
+      out.push(...await install(config,project,name,agents,{...options(args),onlyIfChanged:true}));}
     if(!flag(args,'dry-run'))await heartbeat(config);return print(out);
   });
   if(command==='status'){const state=await loadState();let syncStatus='reported';try{await heartbeat(config);}catch(e){syncStatus='not reported: '+e.message;}return print({device:config.device,heartbeat:syncStatus,installed:Object.values(state.installed),subscriptions:config.subscriptions});}

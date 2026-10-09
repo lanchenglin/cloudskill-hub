@@ -8,7 +8,7 @@ const one=(db,sql,...a)=>db.prepare(sql).bind(...a).first();
 const run=(db,sql,...a)=>db.prepare(sql).bind(...a).run();
 const keys=id=>({archive:`packages/${id}.zip`,manifest:`package-manifests/${id}.json`});
 function isAdmin(u){if(u.role!=='admin')throw problem('Admin token required',403);}
-export function capabilities(env){return {version:'0.2.0',uploadProtocol:2,limits:resolveLimits(env),
+export function capabilities(env){return {version:'0.2.1',uploadProtocol:2,limits:resolveLimits(env),
   legacy:{maxFiles:200,maxBundleBytes:6*1024*1024,maxFileBytes:4*1024*1024,maxJsonBytes:9*1024*1024},
   uploads:{sessionTtlSeconds:TTL/1000,maxActive:MAX_ACTIVE,maxStartsPerHour:MAX_HOURLY,resume:'completed-archive',transport:'worker-stream-to-private-r2',zipCompression:['store','deflate']}};}
 export async function startUpload(env,u,project,name,body){
@@ -39,7 +39,7 @@ async function owned(env,u,id,{expired=false}={}){
   if(row.state==='deleting')throw problem('Upload is being removed',410);
   return row;
 }
-export async function uploadStatus(env,u,id){const s=await owned(env,u,id);return {id:s.id,state:s.state,project:s.project_slug,slug:s.skill_slug,manifest:JSON.parse(s.manifest),baseVersion:s.base_version,expiresAt:new Date(s.expires_at).toISOString(),result:s.result?JSON.parse(s.result):null};}
+export async function uploadStatus(env,u,id){const s=await owned(env,u,id);return {id:s.id,state:s.state,project:s.project_slug,slug:s.skill_slug,visibility:s.visibility,manifest:JSON.parse(s.manifest),baseVersion:s.base_version,expiresAt:new Date(s.expires_at).toISOString(),result:s.result?JSON.parse(s.result):null};}
 export async function uploadArchive(env,u,id,request){
   const row=await owned(env,u,id),manifest=JSON.parse(row.manifest);
   if(row.state==='ready'||row.state==='committed'){await request.body?.cancel().catch(()=>{});return {id,state:row.state};}

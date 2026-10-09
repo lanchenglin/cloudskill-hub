@@ -67,13 +67,13 @@ export async function localFiles(dir){const all=await diskFiles(dir);if(!all.inc
 const entryKey=(project,name,agent)=>`${project}/${name}#${agent}`;
 async function exists(file){try{await fs.lstat(file);return true;}catch(e){if(e.code==='ENOENT')return false;throw e;}}
 async function ensureNoAncestorSymlink(dest){let dir=path.dirname(dest);while(dir!==path.dirname(dir)){try{const s=await fs.lstat(dir);if(s.isSymbolicLink())throw Error('Parent directory is a symlink: '+dir);}catch(e){if(e.code!=='ENOENT')throw e;}dir=path.dirname(dir);}}
-export async function installBundle(bundle,project,agent,options={}){
-  const {force=false,dryRun=false}=options, state=options.state||await loadState(), name=slug(bundle.slug), p=slug(project);
-  const normal=bundle.format===2?null:await payloadHash(bundle),destination=targetFor(name,agent),id=entryKey(p,name,agent);
-  if(bundle.format===2&&!bundle.binaryEntries)throw Error('Binary bundle must be downloaded and verified before installation');
+async function inspectTarget(bundle,project,agent,options={}){
+  const {force=false}=options, state=options.state||await loadState(), name=slug(bundle.slug), p=slug(project);
+  const destination=targetFor(name,agent),id=entryKey(p,name,agent);
   const record=state.installed[id];
   const conflict=Object.values(state.installed).find(row=>row.path===destination&&row.key!==id);
   if(conflict)throw Error(`${destination} is managed by a different Skill (${conflict.key}); refusing collision`);
+  await ensureNoAncestorSymlink(destination);
   const present=await exists(destination);
   if(present&&!record)throw Error(`${destination} already exists but is not managed by CloudSkill; will not overwrite`);
   if(record&&!present&&!force)throw Error(`${destination} was removed externally; use --force to restore`);
@@ -82,7 +82,21 @@ export async function installBundle(bundle,project,agent,options={}){
   if(present){const stat=await fs.lstat(destination);if(!stat.isDirectory()||stat.isSymbolicLink())throw Error('Destination is not a regular directory');modified=(await fingerprint(destination))!==record.treeHash;
     if(modified&&!force)throw Error(`${destination} has local modifications; refusing to overwrite (use --force after review)`);
   }
-  if(record&&record.digest===bundle.digest&&!modified)return {status:'current',project:p,name,agent,version:record.version};
+  return {state,name,p,destination,id,record,present,modified,current:Boolean(record&&present&&record.digest===bundle.digest&&!modified)};
+}
+export async function installBundle(bundle,project,agent,options={}){
+  const {dryRun=false}=options;
+  const normal=bundle.format===2?null:await payloadHash(bundle);
+  if(bundle.format===2&&!bundle.binaryEntries)throw Error('Binary bundle must be downloaded and verified before installation');
+  const {state,name,p,destination,id,record,present,modified,current}=await inspectTarget(bundle,project,agent,options);
+  if(current){
+    // A rollback can reuse identical bytes under a new version number. Refresh only local metadata.
+    if(!dryRun&&record.version!==bundle.version){
+      state.installed[id]={...record,version:bundle.version};
+      try{await atomicJson(files().state,state);}catch(error){state.installed[id]=record;throw error;}
+    }
+    return {status:'current',project:p,name,agent,version:dryRun?record.version:bundle.version};
+  }
   if(dryRun)return {status:record?'update':'install',project:p,name,agent,version:bundle.version,modified};
   await ensureNoAncestorSymlink(destination);
   await fs.mkdir(path.dirname(destination),{recursive:true});
@@ -113,14 +127,29 @@ export async function installBundle(bundle,project,agent,options={}){
     throw e;
   }
 }
+async function applySkill(config,skill,agents,options={}){
+  const results=new Map(),needed=[];
+  for(const agent of agents){
+    const target=await inspectTarget(skill,skill.project,agent,options);
+    if(options.onlyIfChanged&&target.current&&target.record.version===skill.version)
+      results.set(agent,{status:'current',project:skill.project,name:skill.slug,agent,version:skill.version});
+    else if(options.dryRun)
+      results.set(agent,{status:target.current?'current':target.record?'update':'install',project:skill.project,name:skill.slug,agent,version:skill.version,modified:target.modified});
+    else needed.push(agent);
+  }
+  if(needed.length){
+    const bundle=await loadVersion(config,skill.project,skill.slug,skill.version);
+    if(bundle.format===2)bundle.binaryEntries=await downloadPackage(config,bundle);
+    // Recheck destinations after the network round trip; never trust an old local snapshot.
+    for(const agent of needed)results.set(agent,await installBundle(bundle,skill.project,agent,options));
+  }
+  return agents.map(agent=>results.get(agent));
+}
 export async function install(config,project,name,agents=AGENTS,options={}){
   const skill=(await catalog(config)).find(s=>s.project===project&&s.slug===name);
   if(!skill)throw Error(`Skill ${project}/${name} not found or not authorized`);
-  const bundle=await loadVersion(config,project,name,skill.version);
-  if(bundle.format===2)bundle.binaryEntries=await downloadPackage(config,bundle);
-  const out=[];
-  for(const agent of agents){out.push(await installBundle(bundle,project,agent,options));}
-  return out;
+  // Explicit installs still verify remote bytes, even when already current. sync/update skip unchanged packages.
+  return applySkill(config,skill,agents,options);
 }
 export async function check(config,state=null){
   state=state||await loadState();
@@ -151,9 +180,7 @@ export async function sync(config,options={}){
   const rows=await catalog(config),result=[];
   for(const sub of config.subscriptions){
     const desired=rows.filter(r=>r.project===sub.project&&(sub.skills.includes('*')||sub.skills.includes(r.slug)));
-    for(const s of desired){const bundle=await loadVersion(config,s.project,s.slug,s.version);
-      if(bundle.format===2)bundle.binaryEntries=await downloadPackage(config,bundle);
-      for(const agent of sub.agents)result.push(await installBundle(bundle,s.project,agent,options));}
+    for(const s of desired)result.push(...await applySkill(config,s,sub.agents,{...options,onlyIfChanged:true}));
   }
   if(!options.dryRun)await heartbeat(config);
   return result;

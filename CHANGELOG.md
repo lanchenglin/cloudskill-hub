@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.1 — 2026-10-09
+
+### Fixed
+- Validate archive metadata, byte limits and file layout before starting binary downloads in CLI and browser. Reject missing, non-integer and out-of-policy bounds.
+- Return the stored visibility of upload sessions; CLI and browser refuse a resumed session with conflicting requested visibility.
+- Cancel the input and known-length stream when R2 throws before consuming the body, including backpressure failure paths.
+- Restore deleted managed directories with `--force` even when the cloud digest has not changed.
+- Skip unchanged ZIP transfers during sync/update after checking local ownership and fingerprints. Explicit install still validates remote bytes; dry-run never downloads archives.
+- Refresh installed version metadata when a new version reuses identical verified content.
+
+### Tests / upgrade
+- Seven regression tests first reproduced the failures, then passed after the fixes; the complete local suite is 40/40 passing.
+- No schema or credential changes. Upgrade Worker and CLI together; the upload protocol remains version 2.
+
 ## 0.2.0 — 2026-10-09
 
 ### Added

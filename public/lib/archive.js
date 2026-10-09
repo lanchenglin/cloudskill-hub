@@ -46,6 +46,9 @@ export async function pack(entries,limits=DEFAULT_LIMITS,onProgress=()=>{}){
   return {blob,manifest:{files:shape.entries,archiveDigest:digest,archiveBytes:shape.size},layout:shape};
 }
 export async function boundedBytes(stream,max){
+  // Reject missing/NaN/string bounds before comparing any untrusted stream lengths.
+  if(!Number.isSafeInteger(max)||max<0)throw problem('A non-negative integer byte limit is required');
+  if(!stream||typeof stream.getReader!=='function')throw problem('A readable byte stream is required');
   const reader=stream.getReader(),parts=[];let total=0;
   try{for(;;){const {done,value}=await reader.read();if(done)break;total+=value.length;if(total>max)throw problem('Inflated file exceeds declared size / ZIP bomb',413);parts.push(value);}}
   catch(e){await reader.cancel(e).catch(()=>{});throw e;}finally{reader.releaseLock();}
@@ -113,10 +116,24 @@ export async function unpack(blob,limits=DEFAULT_LIMITS,{stripRoot=true,onProgre
   }
   return {entries:result,skipped};
 }
-export async function verifyPackage(blob,manifest){
-  if(!manifest||!Array.isArray(manifest.files)||!Number.isSafeInteger(manifest.archiveBytes)||manifest.archiveBytes>HARD_LIMITS.maxArchiveBytes||blob.size!==manifest.archiveBytes)throw problem('Invalid downloaded package size');
+/** Validate metadata before opening a network download, not after buffering it. */
+export function validatePackageManifest(manifest){
+  if(!manifest||typeof manifest!=='object'||Array.isArray(manifest)||
+      (manifest.format!==undefined&&manifest.format!==2)||
+      !Number.isSafeInteger(manifest.archiveBytes)||manifest.archiveBytes<22||
+      manifest.archiveBytes>HARD_LIMITS.maxArchiveBytes||
+      typeof manifest.archiveDigest!=='string'||!/^[a-f0-9]{64}$/.test(manifest.archiveDigest))
+    throw problem('Invalid downloaded package metadata or size');
   const shape=layout(manifest.files,HARD_LIMITS);
-  if(shape.size!==blob.size||await sha256(await blob.arrayBuffer())!==manifest.archiveDigest)throw problem('Downloaded archive SHA-256 mismatch');
+  if(shape.size!==manifest.archiveBytes)throw problem('Archive size does not match file manifest');
+  if(manifest.rawBytes!==undefined&&manifest.rawBytes!==validateEntries(shape.entries,HARD_LIMITS))
+    throw problem('Raw byte total does not match file manifest');
+  return shape;
+}
+export async function verifyPackage(blob,manifest){
+  const shape=validatePackageManifest(manifest);
+  if(blob.size!==shape.size)throw problem('Invalid downloaded package size');
+  if(await sha256(await blob.arrayBuffer())!==manifest.archiveDigest)throw problem('Downloaded archive SHA-256 mismatch');
   const decoded=await unpack(blob,HARD_LIMITS,{stripRoot:false});
   if(decoded.entries.length!==shape.entries.length)throw problem('Downloaded file count mismatch');
   for(const e of decoded.entries){const expected=shape.entries.find(x=>x.name===e.name);if(!expected||e.blob.size!==expected.size||e.mode!==expected.mode||await sha256(await e.blob.arrayBuffer())!==expected.sha256)throw problem('Downloaded file checksum mismatch: '+e.name);}

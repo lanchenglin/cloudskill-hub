@@ -8,6 +8,12 @@ export async function publishBrowser({entries,limits,project,visibility,baseVers
   let session;
   if(pending&&pending.project===project&&pending.slug===name&&pending.digest===pkg.manifest.archiveDigest&&pending.visibility===visibility){
     try{session=await api(`/api/uploads/${pending.id}`);}catch(error){if(error.status!==404&&error.status!==410)throw error;}
+    if(session&&session.state!=='cancelled'){
+      if(session.project!==project||session.slug!==name||session.manifest?.archiveDigest!==pkg.manifest.archiveDigest)
+        throw Error('服务器上传会话与当前文件不匹配，请放弃旧会话后重新发布');
+      if(session.visibility!==visibility)
+        throw Error('上传会话的可见性与当前选择不一致，请放弃旧会话后重新发布；不会自动公开私有技能');
+    }
     if(session?.state==='committed'){onPending(null);return session.result;}
     if(session?.state==='cancelled')session=null;
   }
