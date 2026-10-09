@@ -1,4 +1,6 @@
-# CloudSkill Hub API v0.2
+# CloudSkill Hub API（当前实现）
+
+本说明对应 main 当前代码。使用者应先完成 [首次部署](SETUP.md)，日常手动分发见 [USAGE.md](USAGE.md)。上传协议编号和文件 format 字段是接口标识，不要求安装多个应用版本。
 
 除 `/api/bootstrap` 外，所有 `/api/*` 必须使用 `Authorization: Bearer csh_<48 hex>`。不要把令牌放进 URL、普通日志或 Git。普通客户端只能读取已授权项目；发布、上传会话、令牌管理和清理要求管理员。上传会话还绑定具体创建令牌，不是管理员之间共享。
 
@@ -14,17 +16,17 @@
 | GET | `/api/projects` | 已授权项目 |
 | POST | `/api/projects` | 管理员，`{slug,title}` |
 | GET | `/api/catalog?project=<slug>` | 可安装的最新版本；project 可省略 |
-| GET | `/api/capabilities` | v2 上传协议、实际限制、旧协议限制与会话参数 |
-| POST | `/api/projects/{p}/skills/{s}/uploads` | 管理员创建 v2 上传会话 |
+| GET | `/api/capabilities` | 上传协议编号、实际限制、JSON 小包兼容限制与会话参数 |
+| POST | `/api/projects/{p}/skills/{s}/uploads` | 管理员创建 ZIP 上传会话 |
 | GET | `/api/uploads` | 当前管理员令牌最近 50 条会话 |
-| GET | `/api/uploads/{id}` | 当前令牌的会话状态和 manifest |
+| GET | `/api/uploads/{id}` | 当前令牌的会话状态、实际 visibility 和 manifest |
 | PUT | `/api/uploads/{id}/archive` | 当前令牌上传规范 ZIP 二进制流 |
 | POST | `/api/uploads/{id}/finalize` | 当前令牌将 ready 内容提交为版本；幂等 |
 | DELETE | `/api/uploads/{id}` | 取消尚未 committed 的会话 |
 | POST | `/api/uploads/cleanup` | 管理员触发一次有界清理，通常由 Cron 自动执行 |
-| POST | `/api/projects/{p}/skills/{s}` | 兼容 v1 小包 JSON 发布，不用于大包 |
+| POST | `/api/projects/{p}/skills/{s}` | JSON 小包兼容发布，不是默认上传方式 |
 | GET | `/api/projects/{p}/skills/{s}/versions` | 历史版本列表 |
-| GET | `/api/projects/{p}/skills/{s}/versions/{n}?format=manifest` | v2 manifest 或 v1 files；新客户端应带查询参数 |
+| GET | `/api/projects/{p}/skills/{s}/versions/{n}?format=manifest` | 按 format 返回 manifest 或 files；应带查询参数 |
 | GET | `/api/projects/{p}/skills/{s}/versions/{n}/download` | 固定版本 ZIP，流式返回 |
 | GET | `/api/projects/{p}/skills/{s}/versions/{n}/file?path=SKILL.md` | 单文件读取，path 可为 URL 编码的安全相对路径 |
 | GET | `/api/projects/{p}/skills/{s}/download` | 最新 ZIP；对一致性敏感的客户端应使用版本固定地址 |
@@ -44,7 +46,7 @@
 
 ```json
 {
-  "version": "0.2.0",
+  "version": "0.2.1",
   "uploadProtocol": 2,
   "limits": {
     "maxFiles": 1000,
@@ -69,7 +71,7 @@
 
 `zipCompression` 表示浏览器/CLI 可导入的 ZIP 算法；**PUT archive 不接收任意第三方 ZIP**，而要求由共享打包器生成的规范 STORE ZIP。普通集成优先使用 `cloudskill publish`，不要直接将未经规范化的 ZIP 发送到该端点。
 
-## v2 发布协议
+## 默认 ZIP 发布协议
 
 1. 获取 capabilities 与 catalog，确定当前版本。目录/ZIP 在本地完成安全预检查，使用 `public/lib/archive.js` 的 `pack` 生成规范 ZIP 和文件描述。
 2. POST uploads，JSON 最多 1 MiB，包含 `files`、`archiveDigest`、`archiveBytes`、`baseVersion`，以及可选 `visibility`。
@@ -88,22 +90,24 @@ visibility: private | public，可省略
 
 `crc32` 为无符号 32 位整数；`mode` 为十进制表示的 0644 或 0755 权限（420 或 493）。文件摘要均为 SHA-256 小写十六进制。服务端从文件顺序与长度重新计算偏移和 ZIP 结构，不信任客户端自报偏移。
 
-省略 visibility：新 Skill 私有，更新保留现有可见性。省略 baseVersion 的 API 调用会以创建会话时最新版本为基线；网页和 CLI 会明确带基线以保护过期编辑。
+省略 visibility：新 Skill 私有，更新保留现有可见性。省略 baseVersion 的 API 调用会以创建会话时最新版本为基线；网页和 CLI 明确携带发布基线，阻止上传期间其他发布覆盖当前目标。CLI 读取的是本次发布前的云端版本，不是完整的多端编辑合并基线；两端都改过时先人工对齐。
 
-创建结果：`{id,state:"created",baseVersion,expiresAt,uploadPath,finalizePath}`，201。最终结果包含 `{project,slug,version,digest,archive_digest,format:2,unchanged}`。v2 digest 与 archive_digest 都代表规范 ZIP；不能与旧 JSON 文件映射摘要混为一谈。
+创建结果：`{id,state:"created",baseVersion,expiresAt,uploadPath,finalizePath}`，201。最终结果包含 `{project,slug,version,digest,archive_digest,format:2,unchanged}`。format 2 的 digest 与 archive_digest 都代表规范 ZIP；不能与 format 1 的 JSON 文件映射摘要混为一谈。
+
+恢复前核对会话实际的项目、技能、摘要和 visibility；显式私有要求不得复用公开会话。
 
 相同会话 finalize 已成功但响应丢失：GET status 或重复 finalize 返回相同 result。ready 会话可重复利用完整 ZIP；created/中断状态不具备字节分片续传。状态长期 uploading 时先检查并取消，或等待过期后重建，不能无条件覆盖该对象。
 
-## 下载与旧客户端
+## 下载结果与小包兼容端点
 
-带 `?format=manifest` 的新客户端兼容两种结果：
+版本读取统一带 `?format=manifest`。当前代码按 format 区分两种返回结构：
 
 - 格式 1：`{project,slug,version,description,digest,format:1,files:{path:base64}}`。
 - 格式 2：`{project,slug,version,description,digest,format:2,manifest,downloadPath}`；manifest 包含文件清单、摘要、ZIP 大小及 rawBytes。
 
-读取格式 2 却未声明 manifest 的旧调用返回 **426**。不会为了兼容而把新大包转换回大 JSON。客户端应只向与 Hub 同源、经过严格校验的下载路径发送凭据，并校验完整 ZIP 及各文件后安装。
+读取格式 2 却未声明 manifest 的调用返回 **426**，错误文本提示客户端能力不匹配。使用当前 CLI，或在自定义接口中正确声明 `?format=manifest`；服务端不会把 ZIP 大包转回 Base64 JSON。客户端应只向与 Hub 同源、经过严格校验的下载路径发送凭据，并校验完整 ZIP 及各文件后安装。
 
-旧发布端点仍接受 `{files:{path:base64},visibility,baseVersion?}`；限制为最多 200 文件、合计 6 MiB、单文件 4 MiB、请求体 9 MiB。省略 visibility 的旧端点仍沿用旧逻辑默认 private，请显式指定，不能套用 v2 的省略保留语义。
+JSON 小包兼容发布端点接受 `{files:{path:base64},visibility,baseVersion?}`；限制为最多 200 文件、合计 6 MiB、单文件 4 MiB、请求体 9 MiB。此端点省略 visibility 时默认 private，不能套用默认 ZIP 协议的省略保留语义。普通用户使用网页或 `cloudskill publish`，不需要调用这个兼容端点或使用 `--legacy`。
 
 ## 公开发现
 
@@ -132,7 +136,7 @@ GET /.well-known/agent-skills/{skill}/{archiveDigest}.zip
 | 410 | 会话过期、取消竞态或清理中；创建新会话 |
 | 413 | 文件、原始总量、ZIP 或请求体超限 |
 | 415 | 请求 Content-Type 不正确 |
-| 426 | 旧客户端无法读取新格式；升级 CLI |
+| 426 | 请求能力与包格式不匹配；使用当前 CLI 或正确声明 manifest |
 | 429 | 会话创建频率或活跃数限制 |
 | 500 / 503 | 内部错误、配置或后端资源问题；客户端收到通用信息，管理员查看服务日志 |
 

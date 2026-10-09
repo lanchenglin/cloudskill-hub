@@ -1,42 +1,27 @@
-# Changelog
+# 当前版本说明
 
-## 0.2.1 — 2026-10-09
+## 0.2.1
 
-### Fixed
-- Validate archive metadata, byte limits and file layout before starting binary downloads in CLI and browser. Reject missing, non-integer and out-of-policy bounds.
-- Return the stored visibility of upload sessions; CLI and browser refuse a resumed session with conflicting requested visibility.
-- Cancel the input and known-length stream when R2 throws before consuming the body, including backpressure failure paths.
-- Restore deleted managed directories with `--force` even when the cloud digest has not changed.
-- Skip unchanged ZIP transfers during sync/update after checking local ownership and fingerprints. Explicit install still validates remote bytes; dry-run never downloads archives.
-- Refresh installed version metadata when a new version reuses identical verified content.
+使用 `main` 中的当前完整代码。这里汇总当前功能，不把开发阶段的中间提交写成需要依次安装的版本；代码变更历史仍保留在 Git 提交中。
 
-### Tests / upgrade
-- Seven regression tests first reproduced the failures, then passed after the fixes; the complete local suite is 40/40 passing.
-- No schema or credential changes. Upgrade Worker and CLI together; the upload protocol remains version 2.
+**当前状态：本地与 CI 测试已执行，实际使用环境尚未首次安装部署；真实 Cloudflare 和 A/B AI 使用验收未完成。**
 
-## 0.2.0 — 2026-10-09
+### 主要用途
 
-### Added
-- Directory and bounded STORE/DEFLATE ZIP import in browser and CLI.
-- Default 50 MiB total / 20 MiB file / 1000 files with shared configurable policy and server capabilities.
-- Authenticated binary upload sessions; canonical ZIP streaming verification to private R2.
-- Full archive and per-file SHA-256, CRC32, ZIP/path safety, version compare-and-swap and idempotent finalize.
-- Progress, cancellation, completed-archive session recovery and bounded scheduled cleanup.
-- Immutable version ZIP and individual-file reads for v2 packages; legacy v1 reading retained.
-- Ubuntu/Windows tests, native local workerd/D1/R2 test, and Chromium browser integration.
+A 的 Hermes 技能修改好后手动 `publish` 到私人 Hub，B 的 Hermes 或 Claude Code 首次 `install`，以后手动 `update`。需要接收新增技能时先 `subscribe`，再按需 `sync`。不要求自动双向同步。
 
-### Fixed
-- Local install-state failure now restores the prior directory or removes an untracked first installation.
-- Backups stay outside Agent-readable skills folders and on the destination filesystem.
-- Historical rollback retains format and description; public historical archives respect current private visibility.
-- Long commands/filenames no longer force mobile upload grids wider than 320/390 px viewports.
+### 当前包含
 
-### Upgrade notes
-- Apply `migrations/0002_binary_uploads.sql` before deploying this code.
-- Update each CLI: old clients receive HTTP 426 for v2 packages instead of a large base64 JSON response.
-- Legacy JSON publishing limits are unchanged; use the v2 browser/CLI for larger uploads.
-- No production Cloudflare deployment or byte-level multipart resumption is included in this release.
+- Workers + D1 + 私有 R2，中文网页、项目权限、技能版本与回滚。
+- 目录和 ZIP 发布，默认总计 50 MiB、单文件 20 MiB、1000 文件；统一配置与预检查。
+- 上传会话、流式校验、完整性验证、进度、取消、已完整上传包的恢复及过期清理。
+- 公开/私有恢复冲突检查、并发发布保护、幂等提交。
+- Claude、Codex、Hermes 的当前目录适配与手动安装更新；本地修改和未知同名目录保护。
+- 更新前备份、异常恢复、未变化同步不重复下载 ZIP、`--dry-run` 只预检。
+- Ubuntu / Windows 测试、原生本地 workerd/D1/R2 与 Chromium 网页检查。
 
-## 0.1.0 — 2026-10-09
+### 首次使用
 
-Initial independent Cloudflare Worker/D1/R2 registry, Chinese dashboard, scoped tokens, versioned skills, public discovery and multi-agent global CLI installation.
+按 [SETUP.md](docs/SETUP.md) 创建资源、设置初始化 Secret、执行全部数据库初始化 SQL、部署 Worker，并在 A/B 分别安装 CLI。无需先安装其他版本。
+
+当前未实现独立凭据保险库、字节级断点续传、自动双向合并或任意 AI 工具适配。具体测试与边界见 [TEST_RESULTS.md](docs/TEST_RESULTS.md)。

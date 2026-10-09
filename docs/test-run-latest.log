@@ -1,8 +1,9 @@
-CloudSkill Hub v0.2.0 — log index (not a fabricated raw test log)
-Verified application commit: 34aa891021b0bbf32635f593eafe26e9cade5f05
-Actual GitHub Actions run: https://github.com/lanchenglin/cloudskill-hub/actions/runs/37915051782
-Conclusion: success
-Jobs: test (ubuntu-latest), test (windows-latest), worker-runtime, browser
-Full raw outputs are available in the run's individual job logs.
-Historical v0.1.0 output: docs/test-run-v0.1.0.log
+CloudSkill Hub 0.2.1 — verified CI log index (not raw test output)
+Application commit: eef8bd8b6990d0e6f2e466ac0a18cfeda4a70980
+Actual main-branch run: https://github.com/lanchenglin/cloudskill-hub/actions/runs/37922337179
+Verified jobs: test (ubuntu-latest), test (windows-latest), worker-runtime, browser
+All four job conclusions: success
+Local suite previously verified on Node 22.23.3 and 24.18.1: 40 passed, 0 failed each
+Raw CI output: open each job log in the run above
 Scope and exclusions: docs/TEST_RESULTS.md
+Deployment status: no production Cloudflare deployment or actual AI loading acceptance
