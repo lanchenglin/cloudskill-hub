@@ -1,3 +1,5 @@
+import {capabilities,startUpload,uploadStatus,uploadArchive,finalizeUpload,cancelUpload,cleanupUploads} from './uploads.js';
+import {fileBody,versionPayload,readPackage} from './packages.js';
 import { slug, normalizedFiles, decode64, frontmatter, fileDigest, tokenHash, randomId, sha256, now, invalid } from './core.js';
 import { zipFiles } from './zip.js';
 
@@ -63,16 +65,16 @@ async function bootstrap(request,env){
 async function getCatalog(env,u,p){
   if(p){slug(p);access(u,p);}
   const all=await queryAll(env.DB,`SELECT s.project_slug AS project,s.slug,s.description,s.visibility,s.latest_version AS version,s.updated_at AS updated,
-    v.artifact_digest AS digest,v.archive_digest AS archive_digest,v.file_names AS file_names
+    v.artifact_digest AS digest,v.archive_digest AS archive_digest,v.file_names AS file_names,v.artifact_format AS format,v.raw_bytes AS bytes
     FROM skills s JOIN skill_versions v ON v.project_slug=s.project_slug AND v.slug=s.slug AND v.version=s.latest_version
     ORDER BY s.project_slug,s.slug`);
   return all.filter(r=>(!p||r.project===p)&&allowed(u,r.project)).map(r=>({...r,files:JSON.parse(r.file_names),file_names:undefined}));
 }
 async function latestVersion(env,p,s,version=null){
-  return queryOne(env.DB,`SELECT v.*,s.description,s.visibility,s.latest_version FROM skill_versions v JOIN skills s ON s.project_slug=v.project_slug AND s.slug=v.slug WHERE v.project_slug=? AND v.slug=? AND v.version=${version===null?'s.latest_version':'?'}`, ...(version===null?[p,s]:[p,s,version]));
+  return queryOne(env.DB,`SELECT v.*,s.description AS skill_description,s.visibility,s.latest_version FROM skill_versions v JOIN skills s ON s.project_slug=v.project_slug AND s.slug=v.slug WHERE v.project_slug=? AND v.slug=? AND v.version=${version===null?'s.latest_version':'?'}`, ...(version===null?[p,s]:[p,s,version]));
 }
 async function readArtifact(env,row){const obj=await env.BUCKET.get(row.artifact_key);if(!obj)fail('Artifact unavailable',503);return JSON.parse(await obj.text());}
-async function zipDownload(env,row,publicRead=false){const obj=await env.BUCKET.get(row.archive_key);if(!obj)fail('Archive unavailable',503);return plain(await obj.arrayBuffer(),'application/zip',publicRead,`${row.slug}-v${row.version}.zip`);}
+async function zipDownload(env,row,publicRead=false){const obj=await env.BUCKET.get(row.archive_key);if(!obj)fail('Archive unavailable',503);return plain(obj.body,'application/zip',publicRead,`${row.slug}-v${row.version}.zip`);}
 
 async function publish(request,env,u,p,s){
   admin(u);slug(p);slug(s);
@@ -87,6 +89,7 @@ async function publish(request,env,u,p,s){
   }
   const digest=await fileDigest(files);
   const previous=await latestVersion(env,p,s);
+  if(input.baseVersion!==undefined&&input.baseVersion!==(previous?.latest_version??0))fail('Skill changed. Refresh before publishing.',409);
   if(previous?.artifact_digest===digest){
     await queryRun(env.DB,'UPDATE skills SET visibility=?,description=?,updated_at=? WHERE project_slug=? AND slug=?',visibility,meta.description,now(),p,s);
     await audit(env,u.label,'visibility_or_noop',{project:p,skill:s,visibility});
@@ -113,10 +116,13 @@ async function rollback(request,env,u,p,s){
   const old=await latestVersion(env,p,s,version),cur=await latestVersion(env,p,s);
   if(!old||!cur)fail('Version not found',404);
   if(old.artifact_digest===cur.artifact_digest)return json({unchanged:true,version:cur.version});
+  if(body.baseVersion!==undefined&&body.baseVersion!==cur.latest_version)fail('Skill changed. Refresh before rollback.',409);
+  const oldArtifact=await readPackage(env,old);
+  const description=old.artifact_format===2?oldArtifact.description:frontmatter(new TextDecoder().decode(decode64(oldArtifact['SKILL.md']))).description;
   const n=cur.latest_version+1,dt=now();
   await env.DB.batch([
-    env.DB.prepare('INSERT INTO skill_versions (project_slug,slug,version,artifact_digest,archive_digest,artifact_key,archive_key,file_names,created_at) VALUES (?,?,?,?,?,?,?,?,?)').bind(p,s,n,old.artifact_digest,old.archive_digest,old.artifact_key,old.archive_key,old.file_names,dt),
-    env.DB.prepare('UPDATE skills SET latest_version=?,updated_at=? WHERE project_slug=? AND slug=?').bind(n,dt,p,s),
+    env.DB.prepare('INSERT INTO skill_versions (project_slug,slug,version,artifact_digest,archive_digest,artifact_key,archive_key,file_names,created_at,artifact_format,raw_bytes,description) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').bind(p,s,n,old.artifact_digest,old.archive_digest,old.artifact_key,old.archive_key,old.file_names,dt,old.artifact_format,old.raw_bytes,description),
+    env.DB.prepare('UPDATE skills SET latest_version=?,description=?,updated_at=? WHERE project_slug=? AND slug=? AND latest_version=?').bind(n,description,dt,p,s,cur.latest_version),
   ]);
   await audit(env,u.label,'rollback',{project:p,skill:s,from:cur.version,to:version,newVersion:n});
   return json({version:n,rolledBackFrom:version,digest:old.artifact_digest},201);
@@ -124,7 +130,7 @@ async function rollback(request,env,u,p,s){
 function mime(path) {return path.endsWith('.md')?'text/markdown; charset=utf-8':path.endsWith('.json')?'application/json; charset=utf-8':path.endsWith('.js')?'text/javascript; charset=utf-8':path.endsWith('.txt')?'text/plain; charset=utf-8':'application/octet-stream';}
 async function wellKnown(req,env,u){
   const path=new URL(req.url).pathname;
-  const publicRows=await queryAll(env.DB,`SELECT s.project_slug,s.slug,s.description,v.archive_digest,v.archive_key,v.artifact_key,v.file_names
+  const publicRows=await queryAll(env.DB,`SELECT s.project_slug,s.slug,s.description,v.archive_digest,v.archive_key,v.artifact_key,v.file_names,v.artifact_format
     FROM skills s JOIN skill_versions v ON s.project_slug=v.project_slug AND s.slug=v.slug AND s.latest_version=v.version WHERE s.visibility='public' ORDER BY s.slug`);
   if(path==='/.well-known/skills/index.json')return json({skills:publicRows.map(r=>({name:r.slug,description:r.description,files:JSON.parse(r.file_names)}))},200,true);
   if(path==='/.well-known/agent-skills/index.json'){
@@ -136,13 +142,12 @@ async function wellKnown(req,env,u){
     if(!publicRows.some(r=>r.slug===s))fail('Not found',404);
     const row=publicRows.find(r=>r.slug===s);
     if(!JSON.parse(row.file_names).includes(rel))fail('Not found',404);
-    const obj=await env.BUCKET.get(row.artifact_key);if(!obj)fail('Artifact unavailable',503);
-    const files=JSON.parse(await obj.text());return plain(decode64(files[rel]),mime(rel),true);
+    return plain(await fileBody(env,row,rel),mime(rel),true);
   }
   m=/^\/\.well-known\/agent-skills\/([^/]+)\/([a-f0-9]{64})\.zip$/.exec(path);
-  if(m){const row=publicRows.find(r=>r.slug===m[1]&&r.archive_digest===m[2]);if(!row)fail('Not found',404);
+  if(m){const row=await queryOne(env.DB,`SELECT v.*,s.visibility FROM skill_versions v JOIN skills s ON s.project_slug=v.project_slug AND s.slug=v.slug WHERE s.slug=? AND s.visibility='public' AND v.archive_digest=? LIMIT 1`,m[1],m[2]);if(!row)fail('Not found',404);
     const obj=await env.BUCKET.get(row.archive_key);if(!obj)fail('Unavailable',503);
-    return plain(await obj.arrayBuffer(),'application/zip',true,`${row.slug}.zip`);
+    return plain(obj.body,'application/zip',true,`${row.slug}.zip`);
   }
   fail('Not found',404);
 }
@@ -150,7 +155,7 @@ async function wellKnown(req,env,u){
 export async function handler(request,env){
   try{
     const url=new URL(request.url),path=url.pathname,method=request.method.toUpperCase();
-    if(method==='GET'&&path==='/healthz')return json({ok:true,app:'cloudskill-hub',version:'0.1.0'},200,true);
+    if(method==='GET'&&path==='/healthz')return json({ok:true,app:'cloudskill-hub',version:'0.2.0'},200,true);
     if(method==='POST'&&path==='/api/bootstrap')return await bootstrap(request,env);
     if(method==='GET'&&path.startsWith('/.well-known/'))return await wellKnown(request,env);
     if(!path.startsWith('/api/')){
@@ -164,6 +169,18 @@ export async function handler(request,env){
       fail('Not found',404);
     }
     const u=await principal(request,env);
+    if(method==='GET'&&path==='/api/capabilities')return json(capabilities(env));
+    if(method==='GET'&&path==='/api/uploads'){admin(u);return json({uploads:await queryAll(env.DB,'SELECT id,project_slug AS project,skill_slug AS slug,state,base_version AS baseVersion,created_at,expires_at FROM upload_sessions WHERE token_id=? ORDER BY created_at DESC LIMIT 50',u.id)});}
+    if(method==='POST'&&path==='/api/uploads/cleanup'){admin(u);return json(await cleanupUploads(env));}
+    const begin=/^\/api\/projects\/([^/]+)\/skills\/([^/]+)\/uploads$/.exec(path);
+    if(begin&&method==='POST'){admin(u);return json(await startUpload(env,u,slug(begin[1]),slug(begin[2]),await readJson(request,1024*1024)),201);}
+    const upload=/^\/api\/uploads\/(up_[a-f0-9]{48})(?:\/(archive|finalize))?$/.exec(path);
+    if(upload){
+      if(method==='GET'&&!upload[2])return json(await uploadStatus(env,u,upload[1]));
+      if(method==='DELETE'&&!upload[2])return json(await cancelUpload(env,u,upload[1]));
+      if(method==='PUT'&&upload[2]==='archive')return json(await uploadArchive(env,u,upload[1],request));
+      if(method==='POST'&&upload[2]==='finalize')return json(await finalizeUpload(env,u,upload[1]));
+    }
     if(method==='GET'&&path==='/api/me')return json({label:u.label,role:u.role,projects:u.projects});
     if(method==='GET'&&path==='/api/projects'){
       const rows=await queryAll(env.DB,'SELECT * FROM projects ORDER BY slug');
@@ -213,11 +230,18 @@ export async function handler(request,env){
       if(method==='GET'&&action==='versions')return json({versions:await queryAll(env.DB,'SELECT version,artifact_digest AS digest,created_at FROM skill_versions WHERE project_slug=? AND slug=? ORDER BY version DESC',p,s)});
       if(method==='GET'&&action==='download'){const row=await latestVersion(env,p,s);if(!row)fail('Skill not found',404);return await zipDownload(env,row);}
     }
+    m=/^\/api\/projects\/([^/]+)\/skills\/([^/]+)\/versions\/([0-9]+)\/(download|file)$/.exec(path);
+    if(m&&method==='GET'){
+      const p=slug(m[1]),s=slug(m[2]);access(u,p);
+      const row=await latestVersion(env,p,s,Number(m[3]));if(!row)fail('Version not found',404);
+      if(m[4]==='download')return await zipDownload(env,row);
+      const relative=url.searchParams.get('path');return plain(await fileBody(env,row,relative),mime(relative));
+    }
     m=/^\/api\/projects\/([^/]+)\/skills\/([^/]+)\/versions\/([0-9]+)$/.exec(path);
     if(m&&method==='GET'){
       const p=slug(m[1]),s=slug(m[2]);access(u,p);const version=Number(m[3]);
       const row=await latestVersion(env,p,s,version);if(!row)fail('Version not found',404);
-      return json({project:p,slug:s,version,description:row.description,digest:row.artifact_digest,files:await readArtifact(env,row)});
+      return json(await versionPayload(env,row,p,s,version,url.searchParams.get('format')==='manifest'));
     }
     m=/^\/api\/projects\/([^/]+)\/skills\/([^/]+)$/.exec(path);
     if(m&&method==='POST')return await publish(request,env,u,slug(m[1]),slug(m[2]));
@@ -228,4 +252,4 @@ export async function handler(request,env){
     return json({error:status>=500?'Internal server error':e.message},status);
   }
 }
-export default {fetch:handler};
+export default {fetch:handler,async scheduled(event,env,ctx){ctx.waitUntil(cleanupUploads(env));}};

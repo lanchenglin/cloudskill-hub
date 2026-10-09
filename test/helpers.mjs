@@ -1,3 +1,5 @@
+import {createHash} from 'node:crypto';
+import {readdirSync} from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
 import fs from 'node:fs/promises';
 import {readFileSync} from 'node:fs';
@@ -20,14 +22,24 @@ class DbAdapter {
     async run(){const r=stmt.run(...values);return {meta:{changes:r.changes}};}
   };}
 }
-class Bucket {
+export class Bucket {
   constructor(){this.objects=new Map();}
-  async put(key,value){this.objects.set(key,typeof value==='string'?Buffer.from(value):Buffer.from(value));}
-  async get(key){const bytes=this.objects.get(key);return bytes?{text:async()=>bytes.toString('utf8'),arrayBuffer:async()=>Uint8Array.from(bytes).buffer}:null;}
+  async put(key,value,options={}){
+    const bytes=value instanceof ReadableStream?Buffer.from(await new Response(value).arrayBuffer()):Buffer.from(value);
+    if(options.sha256&&createHash('sha256').update(bytes).digest('hex')!==options.sha256)throw Error('R2 checksum mismatch');
+    this.objects.set(key,bytes);return {key,size:bytes.length};
+  }
+  async delete(keys){for(const key of Array.isArray(keys)?keys:[keys])this.objects.delete(key);}
+  async head(key){const bytes=this.objects.get(key);return bytes?{key,size:bytes.length}:null;}
+  async get(key,options={}){
+    const original=this.objects.get(key);if(!original)return null;
+    const bytes=options.range?original.subarray(options.range.offset,options.range.offset+options.range.length):original;
+    return {key,size:original.length,body:new Blob([bytes]).stream(),text:async()=>bytes.toString('utf8'),arrayBuffer:async()=>Uint8Array.from(bytes).buffer};
+  }
 }
 export function fixture(){
   const db=new DatabaseSync(':memory:');
-  const migration=readFileSync(new URL('../migrations/0001_initial.sql',import.meta.url),'utf8');db.exec(migration);
+  for(const name of readdirSync(new URL('../migrations/',import.meta.url)).filter(n=>n.endsWith('.sql')).sort())db.exec(readFileSync(new URL('../migrations/'+name,import.meta.url),'utf8'));
   const env={DB:new DbAdapter(db),BUCKET:new Bucket(),BOOTSTRAP_SECRET:'test-bootstrap-secret-with-adequate-length'};
   return {env,db,close:()=>db.close()};
 }

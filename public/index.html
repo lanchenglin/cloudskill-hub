@@ -7,7 +7,7 @@
   <meta name="description" content="CloudSkill Hub — 私有 Agent Skills 管理平台" />
   <title>CloudSkill Hub · 私人技能中心</title>
   <link rel="stylesheet" href="/style.css" />
-  <script src="/app.js" defer></script>
+  <script src="/app.js" type="module"></script>
 </head>
 <body>
 <div class="app-shell">
@@ -52,11 +52,11 @@
           <form id="publishForm" class="panel">
             <label>目标项目</label><select id="publishProject" required></select>
             <label>选择技能资源</label>
-            <div class="upload-row"><label class="upload-btn" for="skillFile">＋ 单个 SKILL.md<input id="skillFile" type="file" accept=".md,text/markdown" /></label><label class="upload-btn" for="skillFolder">▤ 整个技能目录<input id="skillFolder" type="file" webkitdirectory multiple /></label></div>
+            <p id="uploadLimits" class="muted">正在读取上传限制…</p><div class="upload-row"><label class="upload-btn" for="skillFile">＋ 单个 SKILL.md<input id="skillFile" type="file" accept=".md,text/markdown" /></label><label class="upload-btn" for="skillFolder">▤ 整个技能目录<input id="skillFolder" type="file" webkitdirectory multiple /></label><label class="upload-btn" for="skillZip">▣ ZIP 压缩包<input id="skillZip" type="file" accept=".zip,application/zip" /></label></div>
             <div id="pickedFiles" class="pick-result">尚未选择文件</div>
             <label class="checkbox-row"><input type="checkbox" id="makePublic" /> 公开此技能（允许未登录的工具发现和下载）</label>
-            <button type="submit" class="primary wide">验证并发布版本 →</button>
-          </form>
+            <button id="publishSubmit" type="submit" class="primary wide">验证并发布版本 →</button>
+          <div class="upload-feedback"><progress id="uploadProgress" max="1" value="0" hidden></progress><p id="uploadStatus" role="status" aria-live="polite"></p><p id="pendingUpload" class="muted"></p><button id="cancelUpload" type="button" class="secondary" hidden>取消当前上传</button> <button id="discardUpload" type="button" class="secondary" hidden>放弃待完成会话</button></div></form>
           <div class="panel helper"><h3>支持的技能格式</h3><pre>---
 name: my-skill
 description: A clear trigger and purpose.
@@ -66,7 +66,7 @@ metadata:
 ---
 # My Skill
 
-Step-by-step instructions...</pre><p>同一份 <code>SKILL.md</code> 可安装到 Claude Code / Codex / Hermes。每次发布保留不可变的历史版本。</p><p>单技能不超过 200 个文件，合计 6 MiB；暂不支持网页直接上传 ZIP，使用目录选择或 CLI 发布。</p></div>
+Step-by-step instructions...</pre><p id="policyHelp"></p><p>同一份 <code>SKILL.md</code> 可安装到 Claude Code / Codex / Hermes。每次发布保留不可变的历史版本。</p><p>ZIP 会在本地安全解包并整理成统一格式；后台流式校验，不再使用整包 Base64 JSON。</p></div>
         </div>
       </section>
       <section id="view-devices" class="view" hidden><div class="page-title"><div class="eyebrow">CONNECTED ENVIRONMENTS</div><h1>客户端设备</h1><p>客户端同步后主动上报状态，不需要服务器远程操控设备。</p></div><div class="panel"><h3>已登记设备</h3><div id="deviceList" class="rows"></div></div><div class="panel command"><h3>客户端命令</h3><pre>cloudskill login https://skills.yourdomain.com

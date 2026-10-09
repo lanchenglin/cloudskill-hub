@@ -1,20 +1,38 @@
 {
   "name": "cloudskill-hub",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Cloudflare-native private Agent Skills hub for Claude Code, Codex and Hermes Agent",
-  "engines": {"node": ">=22"},
-  "bin": {"cloudskill": "./cli/cloudskill.mjs"},
+  "engines": {
+    "node": ">=22.16"
+  },
+  "bin": {
+    "cloudskill": "./cli/cloudskill.mjs"
+  },
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate": "wrangler d1 migrations apply DB --remote",
     "test": "node --test test/*.test.mjs",
-    "check": "node --check src/index.js && node --check src/core.js && node --check src/zip.js && node --check cli/cloudskill.mjs && node --check cli/manager.mjs && npm test"
+    "check": "node scripts/check.mjs && npm test",
+    "test:browser:server": "node test/browser-server.mjs"
   },
-  "devDependencies": {"wrangler":"^4.0.0"},
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  },
   "license": "MIT",
-  "keywords": ["agent-skills","hermes-agent","codex","claude-code","cloudflare","skill-hub"]
+  "keywords": [
+    "agent-skills",
+    "hermes-agent",
+    "codex",
+    "claude-code",
+    "cloudflare",
+    "skill-hub"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lanchenglin/cloudskill-hub.git"
+  }
 }

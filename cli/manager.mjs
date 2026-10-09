@@ -1,3 +1,4 @@
+import {downloadPackage} from './transfer.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs/promises';
@@ -38,7 +39,7 @@ export async function request(config,method,endpoint,body=null){
   return parsed;
 }
 export async function catalog(config){return (await request(config,'GET','/api/catalog')).skills;}
-export async function loadVersion(config,project,name,version){return request(config,'GET',`/api/projects/${slug(project)}/skills/${slug(name)}/versions/${version}`);}
+export async function loadVersion(config,project,name,version){return request(config,'GET',`/api/projects/${slug(project)}/skills/${slug(name)}/versions/${version}?format=manifest`);}
 export async function payloadHash(bundle){
   const {files:normal}=normalizedFiles(bundle.files,bundle.slug);const digest=await fileDigest(normal);
   if(bundle.digest!==digest)throw Error(`Integrity validation failed for ${bundle.project}/${bundle.slug}`);
@@ -68,7 +69,8 @@ async function exists(file){try{await fs.lstat(file);return true;}catch(e){if(e.
 async function ensureNoAncestorSymlink(dest){let dir=path.dirname(dest);while(dir!==path.dirname(dir)){try{const s=await fs.lstat(dir);if(s.isSymbolicLink())throw Error('Parent directory is a symlink: '+dir);}catch(e){if(e.code!=='ENOENT')throw e;}dir=path.dirname(dir);}}
 export async function installBundle(bundle,project,agent,options={}){
   const {force=false,dryRun=false}=options, state=options.state||await loadState(), name=slug(bundle.slug), p=slug(project);
-  const normal=await payloadHash(bundle),destination=targetFor(name,agent),id=entryKey(p,name,agent);
+  const normal=bundle.format===2?null:await payloadHash(bundle),destination=targetFor(name,agent),id=entryKey(p,name,agent);
+  if(bundle.format===2&&!bundle.binaryEntries)throw Error('Binary bundle must be downloaded and verified before installation');
   const record=state.installed[id];
   const conflict=Object.values(state.installed).find(row=>row.path===destination&&row.key!==id);
   if(conflict)throw Error(`${destination} is managed by a different Skill (${conflict.key}); refusing collision`);
@@ -84,33 +86,39 @@ export async function installBundle(bundle,project,agent,options={}){
   if(dryRun)return {status:record?'update':'install',project:p,name,agent,version:bundle.version,modified};
   await ensureNoAncestorSymlink(destination);
   await fs.mkdir(path.dirname(destination),{recursive:true});
-  const scratch=`${destination}.cloudskill-tmp-${randomBytes(6).toString('hex')}`;
-  let backup=null;
+  const scratch=path.join(path.dirname(destination),`.${name}-cloudskill-tmp-${randomBytes(6).toString('hex')}`);
+  let backup=null,placed=false;
   try{
     await fs.mkdir(scratch,{mode:0o700});
-    for(const [rel,content] of Object.entries(normal)){
-      const full=path.join(scratch,...rel.split('/'));
-      await fs.mkdir(path.dirname(full),{recursive:true});await fs.writeFile(full,decode64(content),{flag:'wx'});
+    const entries=bundle.format===2?bundle.binaryEntries:Object.entries(normal).map(([name,content])=>({name,bytes:decode64(content),mode:420}));
+    for(const entry of entries){
+      safePath(entry.name);const full=path.join(scratch,...entry.name.split('/'));
+      await fs.mkdir(path.dirname(full),{recursive:true});
+      await fs.writeFile(full,entry.bytes??new Uint8Array(await entry.blob.arrayBuffer()),{flag:'wx',mode:entry.mode});
     }
     const treeHash=await fingerprint(scratch);
-    if(present){await fs.mkdir(files().backups,{recursive:true,mode:0o700});
-      backup=path.join(files().backups,`${Date.now()}-${p}-${name}-${agent}-${randomBytes(3).toString('hex')}`);
+    if(present){const backupRoot=path.join(path.dirname(path.dirname(destination)),'.cloudskill-backups');await fs.mkdir(backupRoot,{recursive:true,mode:0o700});
+      backup=path.join(backupRoot,`${Date.now()}-${p}-${name}-${agent}-${randomBytes(3).toString('hex')}`);
       await fs.rename(destination,backup);
     }
-    await fs.rename(scratch,destination);
+    await fs.rename(scratch,destination);placed=true;
     state.installed[id]={key:id,project:p,slug:name,agent,version:bundle.version,digest:bundle.digest,treeHash,path:destination,installedAt:new Date().toISOString(),backup};
     await atomicJson(files().state,state);
     return {status:record?'updated':'installed',project:p,name,agent,version:bundle.version,backup};
   }catch(e){
     await fs.rm(scratch,{recursive:true,force:true}).catch(()=>{});
-    if(backup){if(await exists(destination))await fs.rm(destination,{recursive:true,force:true});await fs.rename(backup,destination).catch(()=>{});}
+    if(placed)await fs.rm(destination,{recursive:true,force:true}).catch(()=>{});
+    if(backup){try{await fs.rename(backup,destination);}catch(restore){throw Error(`${e.message}; restore failed: ${restore.message}; backup remains at ${backup}`);}}
+    if(record)state.installed[id]=record;else delete state.installed[id];
     throw e;
   }
 }
 export async function install(config,project,name,agents=AGENTS,options={}){
   const skill=(await catalog(config)).find(s=>s.project===project&&s.slug===name);
   if(!skill)throw Error(`Skill ${project}/${name} not found or not authorized`);
-  const bundle=await loadVersion(config,project,name,skill.version);const out=[];
+  const bundle=await loadVersion(config,project,name,skill.version);
+  if(bundle.format===2)bundle.binaryEntries=await downloadPackage(config,bundle);
+  const out=[];
   for(const agent of agents){out.push(await installBundle(bundle,project,agent,options));}
   return out;
 }
@@ -144,6 +152,7 @@ export async function sync(config,options={}){
   for(const sub of config.subscriptions){
     const desired=rows.filter(r=>r.project===sub.project&&(sub.skills.includes('*')||sub.skills.includes(r.slug)));
     for(const s of desired){const bundle=await loadVersion(config,s.project,s.slug,s.version);
+      if(bundle.format===2)bundle.binaryEntries=await downloadPackage(config,bundle);
       for(const agent of sub.agents)result.push(await installBundle(bundle,s.project,agent,options));}
   }
   if(!options.dryRun)await heartbeat(config);

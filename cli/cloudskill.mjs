@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {publishSource} from './transfer.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs/promises';
@@ -8,11 +9,14 @@ import { randomBytes } from 'node:crypto';
 import { hubOrigin, parseAgents, loadConfig, saveConfig, loadState, request, catalog, install, check, heartbeat, subscribe, sync, localFiles, files, withLock, readJson } from './manager.mjs';
 import { frontmatter, decode64 } from '../src/core.js';
 
-const USAGE=`CloudSkill Hub CLI — independent Agent Skills management\n\nCommands:\n  cloudskill login https://YOUR-HUB             Login (token via CLOUDSKILL_TOKEN or interactive prompt)\n  cloudskill whoami                              Check account permissions\n  cloudskill projects                            List accessible projects\n  cloudskill list [project]                      List private and public Skills\n  cloudskill publish <project> <folder> [--public] Upload a Skill folder (admin only)\n  cloudskill install <project>/<skill> [--agents claude,codex,hermes] [--force] [--dry-run]\n  cloudskill subscribe <project> [--agents ...] [--skills skill1,skill2|*]\n  cloudskill sync [--force] [--dry-run]           Install/update subscribed Skills\n  cloudskill check                               Check updates and local modifications\n  cloudskill update [--force] [--dry-run]         Update previously installed Skills\n  cloudskill status                              Local device inventory + send heartbeat\n  cloudskill logout                              Remove local credentials (does NOT revoke remote token)\n`;
+const USAGE=`CloudSkill Hub CLI — independent Agent Skills management\n\nCommands:\n  cloudskill login https://YOUR-HUB             Login (token via CLOUDSKILL_TOKEN or interactive prompt)\n  cloudskill whoami                              Check account permissions\n  cloudskill projects                            List accessible projects\n  cloudskill list [project]                      List private and public Skills\n  cloudskill publish <project> <folder|zip> [--public|--private] [--resume id] [--legacy]\n  cloudskill install <project>/<skill> [--agents claude,codex,hermes] [--force] [--dry-run]\n  cloudskill subscribe <project> [--agents ...] [--skills skill1,skill2|*]\n  cloudskill sync [--force] [--dry-run]           Install/update subscribed Skills\n  cloudskill check                               Check updates and local modifications\n  cloudskill update [--force] [--dry-run]         Update previously installed Skills\n  cloudskill uploads [id]                       Inspect pending upload sessions\n  cloudskill cancel-upload <id>                 Cancel an unpublished upload\n  cloudskill limits                             Show server upload policy\n  cloudskill status                              Local device inventory + send heartbeat\n  cloudskill logout                              Remove local credentials (does NOT revoke remote token)\n`;
 function option(args,key){const idx=args.indexOf(`--${key}`);return idx<0?undefined:args[idx+1];}
 function flag(args,name){return args.includes(`--${name}`);}
 function print(data){console.log(JSON.stringify(data,null,2));}
 function options(args){return {force:flag(args,'force'),dryRun:flag(args,'dry-run')};}
+function uploadId(id){if(!/^up_[a-f0-9]{48}$/.test(id||''))throw Error('Invalid upload session id');return id;}
+let lastProgress=0;
+function progress(event){if(event.phase==='session')return console.error('Upload session:',event.id);if(event.phase==='skipped')return console.error('Skipped ZIP metadata:',event.paths.join(', '));if(Date.now()-lastProgress>1000||event.done===event.total){console.error(`${event.phase}: ${event.done}/${event.total}`);lastProgress=Date.now();}}
 async function main(){const [command,...args]=process.argv.slice(2);
   if(!command||command==='help'||command==='--help')return console.log(USAGE);
   if(command==='login'){
@@ -35,11 +39,16 @@ async function main(){const [command,...args]=process.argv.slice(2);
   if(command==='projects')return print(await request(config,'GET','/api/projects'));
   if(command==='list')return print((await catalog(config)).filter(x=>!args[0]||x.project===args[0]));
   if(command==='publish'){
-    const project=args[0],folder=args[1];if(!project||!folder)throw Error('Usage: publish <project> <folder> [--public]');
+    const project=args[0],folder=args[1];if(!project||!folder)throw Error('Usage: publish <project> <folder|zip> [--public|--private] [--resume id]');
+    if(flag(args,'public')&&flag(args,'private'))throw Error('Choose --public OR --private');
+    if(!flag(args,'legacy'))return print(await withLock(()=>publishSource(config,project,folder,{visibility:flag(args,'public')?'public':flag(args,'private')?'private':undefined,resume:option(args,'resume'),onProgress:progress})));
     const items=await localFiles(path.resolve(folder));const name=frontmatter(new TextDecoder().decode(decode64(items['SKILL.md']))).name;
     const result=await request(config,'POST',`/api/projects/${project}/skills/${name}`,{files:items,visibility:flag(args,'public')?'public':'private'});
     print(result);return;
   }
+  if(command==='limits')return print(await request(config,'GET','/api/capabilities'));
+  if(command==='uploads')return print(await request(config,'GET',args[0]?'/api/uploads/'+uploadId(args[0]):'/api/uploads'));
+  if(command==='cancel-upload')return print(await request(config,'DELETE','/api/uploads/'+uploadId(args[0])));
   if(command==='install'){
     const parts=(args[0]||'').split('/');if(parts.length!==2)throw Error('Usage: install <project>/<skill>');
     return print(await withLock(()=>install(config,parts[0],parts[1],parseAgents(option(args,'agents')),options(args))));

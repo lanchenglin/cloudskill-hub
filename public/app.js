@@ -1,4 +1,7 @@
-'use strict';
+import {unpack,verifyPackage,boundedBytes} from './lib/archive.js';
+import {validateEntries,HARD_LIMITS,MiB} from './lib/policy.js';
+import {frontmatter} from './lib/metadata.js';
+import {publishBrowser} from './lib/browser-upload.js';
 const $ = id => document.getElementById(id);
 const state = {token:sessionStorage.getItem('csh-token')||'',me:null,projects:[],skills:[],devices:[],view:'library'};
 let toastTimer;
@@ -7,34 +10,98 @@ function node(tag,className,text){const el=document.createElement(tag);if(classN
 async function api(path,method='GET',data){
   const res=await fetch(path,{method,headers:{'Accept':'application/json',...(state.token?{Authorization:'Bearer '+state.token}:{}),...(data?{'Content-Type':'application/json'}:{})},body:data?JSON.stringify(data):undefined,redirect:'error'});
   let reply;try{reply=await res.json();}catch{throw Error('服务器未返回 JSON');}
-  if(!res.ok)throw Error(reply.error||`HTTP ${res.status}`);return reply;
+  if(!res.ok)throw Object.assign(Error(reply.error||`HTTP ${res.status}`),{status:res.status});return reply;
 }
 function authUi(active){$('auth-card').hidden=active;$('dashboard').hidden=!active;$('actor').textContent=state.me?.label||'未登录';$('role').textContent=state.me?.role==='admin'?'管理员':'只读客户端';document.querySelectorAll('[data-view="publish"],[data-view="security"]').forEach(el=>el.hidden=active&&state.me?.role!=='admin');if(active&&state.me?.role!=='admin'&&['publish','security'].includes(state.view))view('library');}
 async function login(token){state.token=token.trim();state.me=await api('/api/me');sessionStorage.setItem('csh-token',state.token);authUi(true);await refresh();}
-async function refresh(){const [projects,skills]=await Promise.all([api('/api/projects'),api('/api/catalog')]);state.projects=projects.projects;state.skills=skills.skills;if(state.me.role==='admin'){try{state.devices=(await api('/api/devices')).devices;}catch{state.devices=[];}}render();}
+async function refresh(){const [projects,skills,cap]=await Promise.all([api('/api/projects'),api('/api/catalog'),api('/api/capabilities')]);state.capabilities=cap;showLimits(cap.limits);state.projects=projects.projects;state.skills=skills.skills;if(state.me.role==='admin'){try{state.devices=(await api('/api/devices')).devices;}catch{state.devices=[];}}render();}
 function view(name){state.view=name;document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.view===name));document.querySelectorAll('.view').forEach(el=>el.hidden=el.id!=='view-'+name);$('crumb').textContent={library:'技能仓库',publish:'发布技能',devices:'客户端设备',security:'访问权限'}[name]||name;if(name==='devices')renderDevices();if(name==='security')renderSecurity();}
 function projectOptions(select,placeholder=false){const current=select.value;select.replaceChildren();if(placeholder){const opt=node('option',null,'全部项目');opt.value='';select.append(opt);}for(const p of state.projects){const opt=node('option',null,p.title+' · '+p.slug);opt.value=p.slug;select.append(opt);}if([...select.options].some(x=>x.value===current))select.value=current;}
 function render(){ $('numSkills').textContent=state.skills.length;$('numProjects').textContent=state.projects.length;$('numDevices').textContent=state.me.role==='admin'?state.devices.length:'—';projectOptions($('projectFilter'),true);projectOptions($('publishProject'));renderSkills();renderDevices();renderSecurity();}
 function renderSkills(){const q=$('search').value.trim().toLowerCase();const p=$('projectFilter').value;const skills=state.skills.filter(s=>(!p||s.project===p)&&`${s.slug} ${s.project} ${s.description}`.toLowerCase().includes(q));const grid=$('skillsGrid');grid.replaceChildren();if(!skills.length)return grid.append(node('div','empty','没有匹配的 Skill。可先创建项目，再发布 SKILL.md。'));
   for(const s of skills){const card=node('button','skill-card');const top=node('div','card-head');const glyph=node('div','glyph','✳');const visible=node('div','visibility'+(s.visibility==='public'?' public':''),s.visibility==='public'?'● 公开':'◌ 私有');top.append(glyph,visible);card.append(top,node('strong',null,s.slug),node('p',null,s.description));const foot=node('div','card-foot');foot.append(node('span',null,s.project),node('b',null,'v'+s.version+'  ↗'));card.append(foot);card.addEventListener('click',()=>details(s));grid.append(card);}}
-async function details(s){const dialog=$('detailDialog'),body=$('detailBody');body.replaceChildren(node('h2',null,s.slug),node('p','detail-meta',`${s.project} · ${s.visibility==='public'?'公开':'私有'} · v${s.version}\n${s.description}`));dialog.showModal();
-  try{const [detail,history]=await Promise.all([api(`/api/projects/${s.project}/skills/${s.slug}/versions/${s.version}`),api(`/api/projects/${s.project}/skills/${s.slug}/versions`)]);
-    const commands=node('div','detail-meta');commands.append(node('div',null,`cloudskill install ${s.project}/${s.slug} --agents claude,codex,hermes`));body.append(commands);
+async function binary(path,max){
+  const response=await fetch(path,{headers:{Authorization:`Bearer ${state.token}`},redirect:'error'});
+  if(!response.ok){let msg;try{msg=(await response.json()).error;}catch{}throw Error(msg||'读取文件失败');}
+  if(Number(response.headers.get('content-length')||0)>max){await response.body.cancel();throw Error('文件超过安全读取上限');}
+  return new Blob([await boundedBytes(response.body,max)]);
+}
+async function markdown(detail){
+  if(detail.format===2)return (await binary(`/api/projects/${detail.project}/skills/${detail.slug}/versions/${detail.version}/file?path=SKILL.md`,HARD_LIMITS.maxSkillMdBytes)).text();
+  return new TextDecoder().decode(Uint8Array.from(atob(detail.files['SKILL.md']),c=>c.charCodeAt(0)));
+}
+async function entriesOf(detail){
+  if(detail.format===2)return verifyPackage(await binary(detail.downloadPath,detail.manifest.archiveBytes),detail.manifest);
+  return Object.entries(detail.files).map(([name,data])=>({name,blob:new Blob([Uint8Array.from(atob(data),c=>c.charCodeAt(0))]),mode:420}));
+}
+async function details(s){
+  const dialog=$('detailDialog'),body=$('detailBody');body.replaceChildren(node('h2',null,s.slug),node('p','detail-meta',`${s.project} · ${s.visibility==='public'?'公开':'私有'} · v${s.version}\n${s.description}`));dialog.showModal();
+  try{
+    const [detail,history]=await Promise.all([api(`/api/projects/${s.project}/skills/${s.slug}/versions/${s.version}?format=manifest`),api(`/api/projects/${s.project}/skills/${s.slug}/versions`)]);
+    let active=detail;body.append(node('p','detail-meta',`cloudskill install ${s.project}/${s.slug} --agents claude,codex,hermes`));
+    const label=node('p','detail-meta',`正在查看 v${detail.version}`),text=node('textarea');text.value=await markdown(detail);text.readOnly=state.me.role!=='admin';body.append(label,text);
     const actions=node('div','detail-actions');
-    const text=node('textarea');text.value=new TextDecoder().decode(Uint8Array.from(atob(detail.files['SKILL.md']),x=>x.charCodeAt(0)));text.readOnly=state.me.role!=='admin';body.append(text);
     if(state.me.role==='admin'){
-      const save=node('button','primary','保存为新版本');save.onclick=async()=>{try{const copy={...detail.files,'SKILL.md':await toBase64(new TextEncoder().encode(text.value))};const r=await api(`/api/projects/${s.project}/skills/${s.slug}`,'POST',{files:copy,visibility:s.visibility});toast('已发布 v'+r.version);dialog.close();await refresh();}catch(e){toast(e.message,true);}};actions.append(save);
+      const save=node('button','primary','保存为新版本');save.onclick=async()=>{
+        if(activeUpload){toast('另一个上传正在进行',true);return;}
+        const controller=new AbortController();activeUpload=controller;save.disabled=true;
+        try{
+          if(frontmatter(text.value).name!==s.slug)throw Error('编辑不能修改 Skill 名称；请另行发布新 Skill');
+          const entries=await entriesOf(active),md=entries.find(e=>e.name==='SKILL.md');md.blob=new Blob([text.value]);
+          const r=await publishBrowser({entries,limits:state.capabilities.limits,project:s.project,visibility:s.visibility,baseVersion:s.version,api,token:state.token,signal:controller.signal,progress:uploadProgress,pending,onPending:setPending});
+          toast('已发布 v'+r.version);dialog.close();await refresh();
+        }catch(e){toast(e.message,true);}finally{save.disabled=false;activeUpload=null;}
+      };actions.append(save);
     }
-    const download=node('button','secondary','下载 ZIP');download.onclick=async()=>{try{const r=await fetch(`/api/projects/${s.project}/skills/${s.slug}/download`,{headers:{Authorization:`Bearer ${state.token}`}});if(!r.ok)throw Error('下载失败');const a=node('a');const blob=await r.blob();const url=URL.createObjectURL(blob);a.href=url;a.download=`${s.slug}-v${s.version}.zip`;a.click();setTimeout(()=>URL.revokeObjectURL(url),30000);}catch(e){toast(e.message,true);}};actions.append(download);body.append(actions);
-    const versions=node('div','versions');for(const v of history.versions){const btn=node('button',null,'v'+v.version);btn.title='查看版本';btn.onclick=async()=>{try{const x=await api(`/api/projects/${s.project}/skills/${s.slug}/versions/${v.version}`);text.value=new TextDecoder().decode(Uint8Array.from(atob(x.files['SKILL.md']),c=>c.charCodeAt(0)));if(state.me.role==='admin'){const ok=confirm('将历史版本 v'+v.version+' 重新发布为新的最新版本？');if(ok){const r=await api(`/api/projects/${s.project}/skills/${s.slug}/rollback`,'POST',{version:v.version});toast('已回滚为新版本 v'+r.version);dialog.close();await refresh();}}}catch(e){toast(e.message,true);}};versions.append(btn);}body.append(node('h3',null,'历史版本（点击查看／回滚）'),versions);
-  }catch(e){toast(e.message,true);}}
-async function toBase64(bytes){let binary='';for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));return btoa(binary);}
-let selectedFiles=[];
-async function onPicked(ev,folder){const list=[...ev.target.files];selectedFiles=await Promise.all(list.map(async file=>({name:folder?file.webkitRelativePath.split('/').slice(1).join('/'):file.name,data:await file.arrayBuffer()})));$('pickedFiles').textContent=selectedFiles.map(f=>f.name).join(', ')||'尚未选择文件';}
-async function publish(ev){ev.preventDefault();try{if(!selectedFiles.length)throw Error('请先选择 Skill 文件或目录');const payload={};for(const f of selectedFiles){if(!f.name||Object.hasOwn(payload,f.name))throw Error('重复的文件名');payload[f.name]=await toBase64(new Uint8Array(f.data));}
-  if(!payload['SKILL.md'])throw Error('根目录必须包含 SKILL.md');const md=new TextDecoder().decode(new Uint8Array(selectedFiles.find(f=>f.name==='SKILL.md').data));const match=/^name:\s*['"]?([a-z0-9-]+)['"]?\s*$/m.exec(md);if(!match)throw Error('SKILL.md frontmatter 缺少 name');
-  const p=$('publishProject').value;const r=await api(`/api/projects/${p}/skills/${match[1]}`,'POST',{files:payload,visibility:$('makePublic').checked?'public':'private'});toast(r.unchanged?'Skill 内容未变化':'发布成功 v'+r.version);selectedFiles=[];$('pickedFiles').textContent='尚未选择文件';$('publishForm').reset();await refresh();view('library');
- }catch(e){toast(e.message,true);}}
+    const download=node('button','secondary','下载此版本 ZIP');download.onclick=async()=>{try{
+      const blob=await binary(`/api/projects/${s.project}/skills/${s.slug}/versions/${active.version}/download`,HARD_LIMITS.maxArchiveBytes),url=URL.createObjectURL(blob),a=node('a');a.href=url;a.download=`${s.slug}-v${active.version}.zip`;a.click();setTimeout(()=>URL.revokeObjectURL(url),30000);
+    }catch(e){toast(e.message,true);}};actions.append(download);body.append(actions);
+    const versions=node('div','versions');for(const v of history.versions){
+      const btn=node('button',null,'查看 v'+v.version);btn.onclick=async()=>{try{active=await api(`/api/projects/${s.project}/skills/${s.slug}/versions/${v.version}?format=manifest`);text.value=await markdown(active);label.textContent='正在查看 v'+v.version+'；保存会保留此版本的其他文件。';}catch(e){toast(e.message,true);}};versions.append(btn);
+      if(state.me.role==='admin'){const rollback=node('button',null,'回滚到 v'+v.version);rollback.onclick=async()=>{if(!confirm('将 v'+v.version+' 完整发布为新版本？'))return;try{const r=await api(`/api/projects/${s.project}/skills/${s.slug}/rollback`,'POST',{version:v.version,baseVersion:s.version});toast('已回滚为 v'+r.version);dialog.close();await refresh();}catch(e){toast(e.message,true);}};versions.append(rollback);}
+    }body.append(node('h3',null,'历史版本'),versions);
+  }catch(e){toast(e.message,true);}
+}
+let selectedFiles=[],pickGeneration=0,activeUpload=null,pending=null;
+try{pending=JSON.parse(sessionStorage.getItem('csh-upload')||'null');}catch{}
+function setPending(value){pending=value;value?sessionStorage.setItem('csh-upload',JSON.stringify(value)):sessionStorage.removeItem('csh-upload');$('pendingUpload').textContent=value?`待完成：${value.project}/${value.slug} · ${value.id}。选择相同源文件再次发布可复用会话。`:'';$('discardUpload').hidden=!value;}
+function showLimits(l){$('uploadLimits').textContent=`单 Skill ≤ ${l.maxBundleBytes/MiB} MiB · 单文件 ≤ ${l.maxFileBytes/MiB} MiB · 最多 ${l.maxFiles} 文件 · 输入 ZIP ≤ ${l.maxArchiveBytes/MiB} MiB。根目录须有 SKILL.md（≤ ${l.maxSkillMdBytes/1024} KiB）。`;$('policyHelp').textContent='支持目录或 ZIP（STORE/DEFLATE）。一包一个 Skill；不接受加密包、ZIP64、软链接、隐藏配置或危险路径。';setPending(pending);}
+function uploadProgress(e){
+  const labels={hash:'正在计算校验',unzip:'正在检查 ZIP',upload:'正在上传',finalize:'校验完成，正在发布',session:'已建立上传会话'};
+  $('uploadProgress').hidden=false;$('uploadProgress').max=e.total||1;$('uploadProgress').value=e.done||0;
+  $('uploadStatus').textContent=(labels[e.phase]||e.phase)+(e.total?` · ${Math.round(e.done/e.total*100)}%`:'');
+}
+async function onPicked(ev,kind){
+  const generation=++pickGeneration;selectedFiles=[];$('publishSubmit').disabled=true;
+  try{
+    const l=state.capabilities.limits;let entries;
+    if(kind==='zip'){
+      const file=ev.target.files[0];if(!file)return;
+      const decoded=await unpack(file,l,{onProgress:uploadProgress});entries=decoded.entries;
+      if(decoded.skipped.length)toast(`忽略 ${decoded.skipped.length} 个 macOS 元数据条目`);
+    }else entries=[...ev.target.files].map(file=>({name:kind==='folder'?file.webkitRelativePath.split('/').slice(1).join('/'):file.name,blob:file,mode:420}));
+    const bytes=validateEntries(entries.map(e=>({name:e.name,size:e.blob.size})),l);
+    frontmatter(await entries.find(e=>e.name==='SKILL.md').blob.text());
+    if(generation!==pickGeneration)return;selectedFiles=entries;
+    $('pickedFiles').textContent=`已选择 ${entries.length} 个文件 · ${(bytes/MiB).toFixed(2)} MiB · ${entries.slice(0,6).map(e=>e.name).join(', ')}${entries.length>6?' …':''}`;$('uploadStatus').textContent='预检查通过，尚未上传';
+  }catch(e){if(generation===pickGeneration){selectedFiles=[];$('pickedFiles').textContent=e.message;toast(e.message,true);}}
+  finally{if(generation===pickGeneration)$('publishSubmit').disabled=false;}
+}
+async function publish(ev){
+  ev.preventDefault();if(activeUpload)return;
+  const controller=new AbortController();activeUpload=controller;$('publishSubmit').disabled=true;$('cancelUpload').hidden=false;
+  try{
+    if(!selectedFiles.length)throw Error('请先选择 Skill 文件、目录或 ZIP');
+    const project=$('publishProject').value;if(!project)throw Error('请先创建并选择项目');
+    const name=frontmatter(await selectedFiles.find(e=>e.name==='SKILL.md').blob.text()).name;
+    const latest=state.skills.find(s=>s.project===project&&s.slug===name);
+    const r=await publishBrowser({entries:selectedFiles,limits:state.capabilities.limits,project,visibility:$('makePublic').checked?'public':'private',baseVersion:latest?.version??0,api,token:state.token,signal:controller.signal,progress:uploadProgress,pending,onPending:setPending});
+    toast(r.unchanged?'内容未变化，未新增版本':'发布成功 v'+r.version);selectedFiles=[];$('pickedFiles').textContent='尚未选择文件';$('publishForm').reset();$('uploadStatus').textContent='发布完成';await refresh();view('library');
+  }catch(e){$('uploadStatus').textContent=e.message;toast(e.message,true);}
+  finally{activeUpload=null;$('publishSubmit').disabled=false;$('cancelUpload').hidden=true;}
+}
+$('cancelUpload').onclick=()=>activeUpload?.abort();
+$('discardUpload').onclick=async()=>{if(!pending||!confirm('放弃这个尚未发布的上传会话？'))return;try{await api(`/api/uploads/${pending.id}`,'DELETE');setPending(null);toast('已取消上传会话');}catch(e){if([404,409,410].includes(e.status))setPending(null);toast(e.message,true);}};
 function renderDevices(){const root=$('deviceList');root.replaceChildren();if(!state.me||state.me.role!=='admin')return root.append(node('div','empty','只有管理员可以查看设备登记记录。'));if(!state.devices.length)return root.append(node('div','empty','暂无设备；运行 cloudskill status 或 sync 后会在这里出现。'));
  for(const d of state.devices){let installs=[];try{installs=JSON.parse(d.installs);}catch{}const stale=installs.filter(item=>{const latest=state.skills.find(s=>s.project===item.project&&s.slug===item.slug);return latest&&latest.digest!==item.digest;}).length;
   const container=node('div','device-item');const row=node('div','row-card');const info=node('div');
@@ -54,7 +121,7 @@ $('logout').onclick=()=>{state.token='';state.me=null;sessionStorage.removeItem(
 $('authBtn').onclick=async()=>{try{await login($('tokenInput').value);toast('已连接私人 Hub');}catch(e){toast(e.message,true);}};
 $('setupBtn').onclick=async()=>{try{const response=await api('/api/bootstrap','POST',{secret:$('setupSecret').value,label:'Owner'});await login(response.token);$('issuedValue').textContent=response.token;$('issuedToken').hidden=false;view('security');toast('初始化成功：请立即保存管理员令牌');}catch(e){toast(e.message,true);}};
 $('search').oninput=renderSkills;$('projectFilter').onchange=renderSkills;
-$('skillFile').onchange=e=>onPicked(e,false);$('skillFolder').onchange=e=>onPicked(e,true);
+$('skillFile').onchange=e=>onPicked(e,'file');$('skillFolder').onchange=e=>onPicked(e,'folder');$('skillZip').onchange=e=>onPicked(e,'zip');
 $('publishForm').onsubmit=publish;$('tokenForm').onsubmit=issue;$('projectForm').onsubmit=newProject;
 $('copyIssued').onclick=()=>navigator.clipboard.writeText($('issuedValue').textContent).then(()=>toast('已复制到剪贴板')).catch(()=>toast('请手动复制令牌',true));
 if(state.token)login(state.token).catch(()=>{sessionStorage.removeItem('csh-token');state.token='';authUi(false);});else authUi(false);

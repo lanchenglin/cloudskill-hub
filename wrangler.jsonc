@@ -3,7 +3,37 @@
   "name": "cloudskill-hub",
   "main": "src/index.js",
   "compatibility_date": "2026-09-01",
-  "assets": {"directory":"./public", "binding":"ASSETS", "run_worker_first":true},
-  "d1_databases": [{"binding":"DB", "database_name":"cloudskill_hub", "database_id":"REPLACE_WITH_YOUR_D1_DATABASE_ID", "migrations_dir":"migrations"}],
-  "r2_buckets": [{"binding":"BUCKET", "bucket_name":"cloudskill-hub"}]
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cloudskill_hub",
+      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "cloudskill-hub"
+    }
+  ],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "triggers": {
+    "crons": [
+      "*/5 * * * *"
+    ]
+  },
+  "vars": {
+    "MAX_SKILL_FILES": "1000",
+    "MAX_SKILL_BYTES": "52428800",
+    "MAX_FILE_BYTES": "20971520",
+    "MAX_ARCHIVE_BYTES": "57671680"
+  }
 }
