@@ -6,3 +6,10 @@ node_modules/
 *.log
 .DS_Store
 *.zip
+
+# Deployment credentials must stay outside the source tree.
+web-admin.json
+publisher-a.json
+client-b.json
+bootstrap.json
+owner.json

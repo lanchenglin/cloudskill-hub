@@ -1,152 +1,128 @@
 # CloudSkill Hub
 
-> 给多套 Hermes 和其他本地 AI 工具共用的私人 Skills 仓库：**A 修改后手动发布，B 需要时手动更新。**
+> 多套 Hermes / Claude Code 共用的私人 Skills 仓库：**A 修改后手动发布，B 需要时手动更新。**
 
 [![CI](https://github.com/lanchenglin/cloudskill-hub/actions/workflows/ci.yml/badge.svg)](https://github.com/lanchenglin/cloudskill-hub/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-当前代码版本：**0.2.1**，使用 `main` 分支。文档只面向当前版本，不需要先安装其他版本。
+当前版本 **0.3.0**，使用 `main` 的完整代码。只需安装当前版本，不需要依次安装开发阶段的中间版本。
 
-**部署状态：已进行本地和 GitHub Actions 测试，尚未在实际使用的 Cloudflare 账号完成首次部署，也未完成 A/B 设备的真实 AI 加载验收。下面提供的是首次部署与使用步骤，不代表服务已经上线。**
+**网页用管理员账号和密码；客户端用独立 Token。** A 使用指定项目的 `publisher` 发布令牌，B 使用 `client` 只读令牌。不再需要把全站管理员权限交给每套 Hermes。
 
-CloudSkill Hub is a self-hosted, Cloudflare-native private Agent Skills registry. Publish an edited skill from one environment, then manually install or update it in another. The application source is open; skills published to your own Hub are private by default.
-
-## 解决什么问题
-
-```text
-A：Hermes 创建或修改一个 Skill
-          │ 手动 cloudskill publish
-          ▼
-你的 CloudSkill Hub（Workers + D1 + 私有 R2）
-          │ B 需要时手动 install / update / sync
-          ▼
-B、C：其他 Hermes 实例 / Claude Code / 已适配的客户端
-```
-
-不要求后台监控、自动回传或双方自动合并。A 发布完成后，B 不会立即变化；B 执行更新命令后才获取仓库中的新内容。B 本地也有修改时，默认拒绝覆盖并提示。
-
-**两个“仓库”不要混淆：** GitHub 的 `lanchenglin/cloudskill-hub` 存放本项目程序源码；你部署的 Hub 将技能内容存到自己的 R2、将元数据存到 D1。`cloudskill publish` 不会把技能提交到这个公开 GitHub 仓库。
+本地、原生本地 Workers 和浏览器测试不代表你的服务已经上线。本仓库没有代替用户执行生产 Cloudflare 部署；实际账号、套餐和真实 A/B 模型加载仍需首次部署时验收。
 
 ## 从这里开始
 
-| 你要做什么 | 文档 |
+| 任务 | 说明 |
 |---|---|
-| 交给 Hermes / Claude Code / Codex 执行首次部署 | [AI 部署执行手册](AI_DEPLOY.md) |
-| 还没有部署，准备首次安装 | [首次部署与初始化](docs/SETUP.md) |
-| A 发布、B 手动更新，多套 Hermes 共用 | [日常使用与多实例配置](docs/USAGE.md) |
-| 查看上传大小、ZIP 校验和会话规则 | [上传与存储设计](docs/UPLOAD_V2.md) |
-| 对接程序接口 | [API 说明](docs/API.md) |
-| 查看实际测试及尚未验收的范围 | [测试报告](docs/TEST_RESULTS.md) |
-| 区分源码提交与技能发布、配置可选自动部署 | [GitHub 与部署工作流](docs/PUBLISH_GITHUB.md) |
+| 交给 AI 部署 | [AI_DEPLOY.md](AI_DEPLOY.md)，入口 [AGENTS.md](AGENTS.md) / [CLAUDE.md](CLAUDE.md) |
+| 自己首次部署 | [docs/SETUP.md](docs/SETUP.md) |
+| A 发布、B 更新、多套 Hermes | [docs/USAGE.md](docs/USAGE.md) |
+| 登录、改密码、令牌权限、密码恢复 | [docs/AUTH.md](docs/AUTH.md) |
+| 上传限制和存储 | [docs/UPLOAD_V2.md](docs/UPLOAD_V2.md) |
+| 对接 API / 测试范围 | [API](docs/API.md) / [TEST_RESULTS](docs/TEST_RESULTS.md) |
 
-首次使用的顺序是：**部署一个 Hub → 网页创建 `personal` 项目并签发令牌 → A/B 安装 CLI → A 发布 → B 首次安装 → B 按需更新。** 无需安装多个应用版本，也无需重复部署多个 Hub。
-
-## 交给 AI 部署
-
-拉取代码后，让 AI 读取根目录 `AGENTS.md` 和 [AI_DEPLOY.md](AI_DEPLOY.md)，按手册执行，不需要再自行整理一遍命令。仓库也提供 `CLAUDE.md` 入口。
+交给部署 AI：
 
 ```text
-请按这个仓库的 AGENTS.md 和 AI_DEPLOY.md，使用我已授权的 Cloudflare 账号
-完成当前 main 的首次部署、初始化 personal 项目和隔离验收。
-凭据保存在仓库外私有目录，不开启 GitHub 自动部署、不修改现有 Hermes 配置。
-完成后给出实际 URL、凭据保存位置和验收结果；缺少授权或账号不明确时才向我确认。
+请拉取 lanchenglin/cloudskill-hub 的 main，完整读取 AGENTS.md 和 AI_DEPLOY.md，
+使用我已授权的 Cloudflare 账号执行首次部署及验收，不要只给建议。
+初始化一个网页登录账号，为 A 创建 personal 项目的 publisher Token，
+为 B 创建 client Token。所有密码和 Token 保存在仓库外私有目录，不在聊天中回显。
+没有凭据、目标不明确或需额外付费时说明阻塞，不更换账号、不清库、不关闭鉴权。
 ```
 
-AI 执行需要可用终端、网络及有效 Cloudflare 授权；首次浏览器授权/付费开通不能凭空跳过。生成这份说明本身不代表已部署。
+## 使用方式
 
-## 日常操作
+```text
+A 的 Hermes 创建 / 修改 Skill
+        │ 手动 cloudskill publish --private
+        ▼
+一个私人 CloudSkill Hub（Workers + D1 + 私有 R2）
+        │ B 按需手动 install / update / sync
+        ▼
+B、C 的 Hermes / Claude Code / 已适配客户端
+```
 
-以下示例在 Hub 部署完成、`personal` 项目已创建、A/B 均已安装 CLI 并登录后执行。`my-skill` 是示例技能名，目录中的 `SKILL.md` 必须使用对应的 `name`。
+GitHub 保存本项目的**程序源码**；`cloudskill publish` 把**技能内容**送到自己的 Hub，不会提交到公开 GitHub。
 
-### A：技能修改好后，手动发布
+完成 Hub 部署、创建 `personal` 项目并在各设备安装 CLI 后：
 
 ```bash
-# Linux / WSL，Hermes 使用默认目录时
+# A 登录时填写限定 personal 的发布 Token（不是网页密码）
+cloudskill login https://skills.example.com
 cloudskill publish personal "$HOME/.hermes/skills/my-skill" --private
 
-# 也可以发布任意准备好的 Skill 目录或 ZIP
-cloudskill publish personal ./my-skill --private
-cloudskill publish personal ./my-skill.zip --private
-```
-
-发布会保存技能版本；相同内容重复发布不会重复增加版本。当前发布需要 **管理员令牌**，请只配置在可信的发布环境。发布目录不要求预先由 CloudSkill 安装。
-
-### B：首次安装，以后手动更新
-
-```bash
-# 首次安装到 B 的 Hermes
+# B 登录时填写只读 Token；首次安装，以后更新
 cloudskill install personal/my-skill --agents hermes
-
-# A 再次发布后，B 需要时执行
 cloudskill update
-```
 
-`update` 更新的是 B **已经通过 CloudSkill 安装过**的技能，不会把整个仓库的所有技能都安装下来。B 只需要对应项目的 **只读客户端令牌**。
-
-### B：还要接收项目中新增的技能
-
-```bash
-# 设置一次订阅；星号加引号，避免被 shell 展开
+# 还要接收 personal 项目新增技能：订阅一次，再按需 sync
 cloudskill subscribe personal --agents hermes --skills '*'
-
-# 每次需要时手动执行：安装新增技能，并更新已订阅的技能
 cloudskill sync
-```
 
-`subscribe` 只保存订阅，不启动后台任务。`sync` 只从 Hub 拉取，不会把 B 的本地修改上传。B 要回传自己的修改，也需获得发布权限后显式执行 `publish`。
-
-### Claude Code 及其他客户端
-
-```bash
+# 安装到 Claude Code
 cloudskill install personal/my-skill --agents claude
-
-# 同一环境需要同时安装到两种工具
-cloudskill install personal/my-skill --agents claude,hermes
 ```
 
-当前 CLI 适配项为 `claude`、`codex`、`hermes`；其他 AI 工具需要增加适配，不宣称自动兼容所有工具。这里的 Claude 指本地 **Claude Code**，不是 claude.ai 网页账号。目录安装成功不等于所有 Agent 版本都已加载并执行技能，尤其要核对所用 Codex 的实际扫描目录，见 [路径与实例配置](docs/USAGE.md)。
+`sync` 只从 Hub 拉取，`publish` 才上传；没有后台监控或自动双向合并。B 本地也修改过时会提示冲突，不静默覆盖。同名但未被本 Hub 管理的目录不会被接管。
+
+## 登录与授权
+
+| 用途 | 身份 | 权限 |
+|---|---|---|
+| 你使用网页 | 自己设置的管理员账号密码 | 管理项目、技能、客户端 Token，修改密码 |
+| A / 可信发布设备 | `publisher` Token | 读取和发布指定项目的私有技能，不能改账号、签发令牌或公开技能 |
+| B / C / 只需使用技能的工具 | `client` Token | 只读取指定项目 |
+
+没有通用默认密码。手工初始化由你设置；AI 初始化默认账号 `admin`，密码为随机生成值，保存在部署机仓库外的 `web-admin.json`。首次登录后建议改成自己管理的长密码。客户端凭据分别保存为 `publisher-a.json` 和 `client-b.json`。
+
+密码要求 15–128 字符，支持空格和 Unicode；使用原生 scrypt 与独立随机盐保存哈希。网页用 HttpOnly / Secure / SameSite Cookie，不把长期管理员 API Token 放进浏览器存储。会话有 12 小时绝对期限、30 分钟空闲期限；退出立即撤销当前会话。改密码撤销全部网页会话，**不会自动撤销客户端 Token**；疑似泄露时另外执行撤销。
+
+新 Token 默认 90 天有效，可选择 1–365 天、逐个撤销；到期后在网页重新签发并更新客户端。已有 API Token 的兼容、重新验证、可信恢复和安全限制见 [AUTH.md](docs/AUTH.md)。
+
+**密码哈希会消耗 CPU。** 本地 workerd 验证了兼容性，但不代表免费套餐已通过线上 CPU 验收；建议在 Workers Paid 评估生产部署。AI 不得擅自升级套餐，也不得降低密码哈希参数来掩盖配额问题。
 
 ## 当前功能
 
-- 中文网页：项目分类、搜索、上传单个 `SKILL.md` / 目录 / ZIP、编辑技能、查看版本、回滚和下载 ZIP。
-- 私有访问：按项目签发只读客户端令牌，管理员发布；各设备可使用不同令牌并分别撤销。
-- 手动分发：`publish`、`install`、`update`、订阅后 `sync`，以及 `check`、`--dry-run` 和设备状态上报。
-- 文件完整性：保留 `SKILL.md`、Hermes metadata、references、scripts、assets；核对文件与整包 SHA-256 / CRC32。
-- 本地保护：不接管未知来源同名目录，不默认覆盖本地修改；更新前备份，失败恢复；未变化的同步不重复下载 ZIP。
-- 上传会话：进度、取消、已完整上传会话的恢复、发布时版本冲突检查、幂等提交和过期对象清理。
+中文响应式网页支持目录 / ZIP 上传、搜索、编辑、历史版本、回滚和下载。上传使用规范 ZIP 二进制流写入私有 R2，包含路径安全、长度、CRC32 和 SHA-256 校验，支持进度、取消、完整包上传后的会话恢复及过期清理。
 
-技能版本和历史备份是本项目的功能，不是要求你部署多个软件版本。当前没有自动双向同步、自动冲突合并、远程控制电脑或技能执行服务。
+客户端保留完整 SKILL.md、Hermes 元数据、references、scripts、assets。只更新托管技能，校验后替换、更新前备份、失败恢复；未变化的 sync/update 不重复下载 ZIP。`--dry-run` 只预检，不落盘、不验证尚未下载的远端字节。
 
-## 文件上传限制
-
-| 项目 | 默认上限 | 当前允许配置的最高值 |
+| 限制 | 默认 | 代码允许配置上限 |
 |---|---:|---:|
-| 一个 Skill 的原始文件总大小 | 50 MiB | 64 MiB |
-| 单个文件 | 20 MiB | 32 MiB |
-| 文件数量，包含 `SKILL.md` | 1000 | 2000 |
-| 输入 ZIP / 规范化 ZIP | 55 MiB | 70 MiB |
-| `SKILL.md` | 256 KiB | 固定 |
+| 单 Skill 原始文件合计 | 50 MiB | 64 MiB |
+| 单文件 | 20 MiB | 32 MiB |
+| 文件数（含 SKILL.md） | 1000 | 2000 |
+| 输入 / 规范 ZIP | 55 MiB | 70 MiB |
+| SKILL.md | 256 KiB | 固定 |
 
-一个上传对应一个 Skill；根目录必须有 `SKILL.md`。支持常见 STORE / DEFLATE ZIP，拒绝加密包、ZIP64、软链接、危险路径及 `.env` 等隐藏路径。路径、压缩倍率、会话配额等细节见 [上传说明](docs/UPLOAD_V2.md)。
+修改 `wrangler.jsonc` 的上传 vars 后重新部署。网页和 `cloudskill limits` 读取实际设置；这不是不限大小的网盘或字节级断点续传。上传配额是每个发布身份 3 个活跃会话、每小时 20 次创建，不是全站存储/账单上限。
 
-上传参数在 `wrangler.jsonc` 的 `vars` 中配置；网页和 `cloudskill limits` 读取服务器实际值。**默认通过 Worker 流式校验并写入私有 R2，不是浏览器直连 R2。** 没有字节级断点续传；未传完的 ZIP 需要重新完整上传。应用限额不等于真实 Cloudflare 套餐已通过满额生产压测。
+## 首次部署概要
 
-## 私人技能与凭据
-
-普通文件里的内容会随技能一起分发，但**当前不是独立的凭据保险库**。含真实凭据的技能必须保持私有，不要提交到 GitHub、开启公开发布或公开 R2 桶，也不要放入本仓库的 `examples/` 后提交。`.env` 等隐藏文件会被拒绝，不能把整个 `.hermes` 配置目录当成一个 Skill 上传。
-
-Skill 内的凭据可能留在历史包、已下载副本和更新备份中；撤销 Hub 访问令牌不会收回这些副本，也不会撤销对应第三方服务的密钥。本地 Hub 令牌以文件保存，不是系统级加密密钥库。建议技能引用环境变量，真实密钥在受控环境中提供。详见 [凭据与权限边界](docs/USAGE.md)。
-
-## 测试与当前边界
+Node.js >=22.16，Git，拥有 Workers / D1 / R2 权限的 Cloudflare 账号：
 
 ```bash
+git clone https://github.com/lanchenglin/cloudskill-hub.git
+cd cloudskill-hub
+npm ci
 npm run check
+npx wrangler login
+npx wrangler d1 create cloudskill_hub --no-update-config
+npx wrangler r2 bucket create cloudskill-hub
 ```
 
-现有 CI 检查包括 Ubuntu、Windows、原生本地 workerd/D1/R2 以及 Chromium 网页流程。当前应用代码的验证依据和 40 项测试范围见 [测试报告](docs/TEST_RESULTS.md)。
+将真实 D1 ID 写入配置、核对资源归属和私有桶，再安全设置 `BOOTSTRAP_SECRET`。执行 `npm run db:migrate` 初始化 **全部 SQL**，随后 `npm run deploy`。打开网站首页设置管理员账号密码；不是去 `/setup` 路径。
 
-**尚未完成真实 Cloudflare 首次部署、线上配额/并发验收、手机真机测试，以及真实 Hermes/Claude/Codex 会话的技能加载与执行验收。** 测试通过不是已经替你上线。后续候选功能见 [ROADMAP.md](docs/ROADMAP.md)。
+**首次空库需要 0001、0002、0003 全部迁移**，不要只运行最后一个文件。GitHub 自动部署仍默认关闭；上述是说明，不代表已操作用户账号。
 
-## 开源与参考
+## 凭据与互通边界
 
-[MIT License](LICENSE)。本项目独立实现，不依赖 skillsgist 的服务端或 CLI。思路与接口参考 [skillsgist](https://github.com/Qsnh/skillsgist)、[Agent Skills](https://agentskills.io)、[skills-handler](https://github.com/vercel-labs/skills-handler) 和 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 的公开约定。
+私有访问控制不是凭据保险库。普通 Skill 文件里的密码会随文件复制，并留在历史和备份；隐藏 `.env` / `.ssh` 等路径仍被拒绝。网页登录改为密码不代表技能内容获得了额外端到端加密。真实私密技能不要提交到源码仓库、公开索引或示例目录。
+
+本项目是技能分发服务，不运行模型。当前支持 Claude、Codex、Hermes 的目录适配；不同 Agent 版本的实际发现和执行仍须验证，后续新工具需要适配，不能把文件安装成功当作通用模型执行保证。只显式公开的技能出现在 well-known 索引，私有技能使用本项目 CLI；发布 Token 不允许公开技能。
+
+详情：[使用与多实例](docs/USAGE.md) · [安全设计](docs/AUTH.md) · [测试](docs/TEST_RESULTS.md) · [后续候选](docs/ROADMAP.md)。
+
+MIT 独立实现，参考 skillsgist、Agent Skills、skills-handler 和 Hermes 的公开思路与接口约定，不依赖 skillsgist 服务端或 CLI。

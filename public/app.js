@@ -3,17 +3,70 @@ import {validateEntries,HARD_LIMITS,MiB} from './lib/policy.js';
 import {frontmatter} from './lib/metadata.js';
 import {publishBrowser} from './lib/browser-upload.js';
 const $ = id => document.getElementById(id);
-const state = {token:sessionStorage.getItem('csh-token')||'',me:null,projects:[],skills:[],devices:[],view:'library'};
+sessionStorage.removeItem('csh-token'); // Retire old long-lived browser API credentials.
+const state = {csrfToken:'',me:null,projects:[],skills:[],devices:[],view:'library',authStatus:null};
 let toastTimer;
 function toast(message,bad=false){const el=$('toast');el.textContent=message;el.className=bad?'bad':'';el.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.style.display='none',4500);}
 function node(tag,className,text){const el=document.createElement(tag);if(className)el.className=className;if(text!==undefined)el.textContent=String(text);return el;}
-async function api(path,method='GET',data){
-  const res=await fetch(path,{method,headers:{'Accept':'application/json',...(state.token?{Authorization:'Bearer '+state.token}:{}),...(data?{'Content-Type':'application/json'}:{})},body:data?JSON.stringify(data):undefined,redirect:'error'});
+async function api(path,method='GET',data,extraHeaders={}){
+  const headers={'Accept':'application/json','X-CloudSkill-Request':'1',...(data?{'Content-Type':'application/json'}:{}),...extraHeaders};
+  if(!['GET','HEAD'].includes(method)&&state.csrfToken)headers['X-CSRF-Token']=state.csrfToken;
+  const res=await fetch(path,{method,credentials:'same-origin',headers,body:data?JSON.stringify(data):undefined,redirect:'error'});
   let reply;try{reply=await res.json();}catch{throw Error('服务器未返回 JSON');}
-  if(!res.ok)throw Object.assign(Error(reply.error||`HTTP ${res.status}`),{status:res.status});return reply;
+  if(!res.ok){
+    if(res.status===401&&!path.startsWith('/api/auth/'))clearLogin();
+    const hint=res.status===429?'尝试过于频繁，请稍后再试（服务器已限速）':reply.error||`HTTP ${res.status}`;
+    throw Object.assign(Error(hint),{status:res.status});
+  }
+  return reply;
 }
-function authUi(active){$('auth-card').hidden=active;$('dashboard').hidden=!active;$('actor').textContent=state.me?.label||'未登录';$('role').textContent=state.me?.role==='admin'?'管理员':'只读客户端';document.querySelectorAll('[data-view="publish"],[data-view="security"]').forEach(el=>el.hidden=active&&state.me?.role!=='admin');if(active&&state.me?.role!=='admin'&&['publish','security'].includes(state.view))view('library');}
-async function login(token){state.token=token.trim();state.me=await api('/api/me');sessionStorage.setItem('csh-token',state.token);authUi(true);await refresh();}
+function authUi(active){
+  $('auth-card').hidden=active;$('dashboard').hidden=!active;
+  $('actor').textContent=state.me?.label||'未登录';$('role').textContent=active?'网页管理员':'账号密码登录';
+  $('logout').hidden=!active;
+  document.querySelectorAll('.nav-item,[data-go]').forEach(el=>el.disabled=!active);
+}
+function clearLogin(){
+  activeUpload?.abort();selectedFiles=[];pickGeneration++;
+  if($('detailDialog').open)$('detailDialog').close();$('detailBody').replaceChildren();
+  state.csrfToken='';state.me=null;state.skills=[];state.projects=[];state.devices=[];
+  $('issuedValue').textContent='';$('issuedToken').hidden=true;$('passwordForm').reset();
+  $('skillsGrid').replaceChildren();$('tokensList').replaceChildren();authUi(false);
+}
+async function acceptSession(session){
+  state.csrfToken=session.csrfToken;state.me={label:session.username,role:'admin'};
+  authUi(true);await refresh();
+}
+async function login(username,password){
+  const session=await api('/api/auth/login','POST',{username,password});
+  await acceptSession(session);
+}
+async function loadAuthStatus(){
+  const status=await api('/api/auth/status');state.authStatus=status;
+  $('setupPanel').hidden=status.initialized||!status.setupEnabled;
+  $('setupSecret').hidden=status.legacyConversion;
+  document.querySelector('label[for="setupSecret"]').hidden=status.legacyConversion;
+  $('legacyAdminToken').hidden=!status.legacyConversion;$('legacyTokenLabel').hidden=!status.legacyConversion;
+  if(status.legacyConversion)$('setupHelp').textContent='已有 Token 模式实例：用原管理员 Token 设置网页账号。只读 / 发布令牌不能执行此转换。';
+}
+let reauthPromise=null;
+function reauthenticate(){
+  if(reauthPromise)return reauthPromise;
+  reauthPromise=new Promise((resolve,reject)=>{
+    const dialog=$('reauthDialog');$('reauthForm').reset();$('reauthError').textContent='';
+    const finish=(error)=>{dialog.close();$('reauthForm').reset();reauthPromise=null;error?reject(error):resolve();};
+    $('cancelReauth').onclick=()=>finish(Error('已取消敏感操作'));
+    dialog.oncancel=e=>{e.preventDefault();finish(Error('已取消敏感操作'));};
+    $('reauthForm').onsubmit=async e=>{e.preventDefault();try{await api('/api/auth/reauth','POST',{password:$('reauthPassword').value});finish();}catch(error){$('reauthError').textContent=error.message;$('reauthPassword').value='';}};
+    dialog.showModal();$('reauthPassword').focus();
+  });return reauthPromise;
+}
+async function sensitiveApi(path,method,data){
+  try{return await api(path,method,data);}catch(error){
+    if(error.message!=='reauth_required')throw error;
+    await reauthenticate();return api(path,method,data);
+  }
+}
 async function refresh(){const [projects,skills,cap]=await Promise.all([api('/api/projects'),api('/api/catalog'),api('/api/capabilities')]);state.capabilities=cap;showLimits(cap.limits);state.projects=projects.projects;state.skills=skills.skills;if(state.me.role==='admin'){try{state.devices=(await api('/api/devices')).devices;}catch{state.devices=[];}}render();}
 function view(name){state.view=name;document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.view===name));document.querySelectorAll('.view').forEach(el=>el.hidden=el.id!=='view-'+name);$('crumb').textContent={library:'技能仓库',publish:'发布技能',devices:'客户端设备',security:'访问权限'}[name]||name;if(name==='devices')renderDevices();if(name==='security')renderSecurity();}
 function projectOptions(select,placeholder=false){const current=select.value;select.replaceChildren();if(placeholder){const opt=node('option',null,'全部项目');opt.value='';select.append(opt);}for(const p of state.projects){const opt=node('option',null,p.title+' · '+p.slug);opt.value=p.slug;select.append(opt);}if([...select.options].some(x=>x.value===current))select.value=current;}
@@ -21,7 +74,7 @@ function render(){ $('numSkills').textContent=state.skills.length;$('numProjects
 function renderSkills(){const q=$('search').value.trim().toLowerCase();const p=$('projectFilter').value;const skills=state.skills.filter(s=>(!p||s.project===p)&&`${s.slug} ${s.project} ${s.description}`.toLowerCase().includes(q));const grid=$('skillsGrid');grid.replaceChildren();if(!skills.length)return grid.append(node('div','empty','没有匹配的 Skill。可先创建项目，再发布 SKILL.md。'));
   for(const s of skills){const card=node('button','skill-card');const top=node('div','card-head');const glyph=node('div','glyph','✳');const visible=node('div','visibility'+(s.visibility==='public'?' public':''),s.visibility==='public'?'● 公开':'◌ 私有');top.append(glyph,visible);card.append(top,node('strong',null,s.slug),node('p',null,s.description));const foot=node('div','card-foot');foot.append(node('span',null,s.project),node('b',null,'v'+s.version+'  ↗'));card.append(foot);card.addEventListener('click',()=>details(s));grid.append(card);}}
 async function binary(path,max){
-  const response=await fetch(path,{headers:{Authorization:`Bearer ${state.token}`},redirect:'error'});
+  const response=await fetch(path,{credentials:'same-origin',redirect:'error'});
   if(!response.ok){let msg;try{msg=(await response.json()).error;}catch{}throw Error(msg||'读取文件失败');}
   if(Number(response.headers.get('content-length')||0)>max){await response.body.cancel();throw Error('文件超过安全读取上限');}
   return new Blob([await boundedBytes(response.body,max)]);
@@ -48,7 +101,7 @@ async function details(s){
         try{
           if(frontmatter(text.value).name!==s.slug)throw Error('编辑不能修改 Skill 名称；请另行发布新 Skill');
           const entries=await entriesOf(active),md=entries.find(e=>e.name==='SKILL.md');md.blob=new Blob([text.value]);
-          const r=await publishBrowser({entries,limits:state.capabilities.limits,project:s.project,visibility:s.visibility,baseVersion:s.version,api,token:state.token,signal:controller.signal,progress:uploadProgress,pending,onPending:setPending});
+          const r=await publishBrowser({entries,limits:state.capabilities.limits,project:s.project,visibility:s.visibility,baseVersion:s.version,api,csrfToken:state.csrfToken,signal:controller.signal,progress:uploadProgress,pending,onPending:setPending});
           toast('已发布 v'+r.version);dialog.close();await refresh();
         }catch(e){toast(e.message,true);}finally{save.disabled=false;activeUpload=null;}
       };actions.append(save);
@@ -95,7 +148,7 @@ async function publish(ev){
     const project=$('publishProject').value;if(!project)throw Error('请先创建并选择项目');
     const name=frontmatter(await selectedFiles.find(e=>e.name==='SKILL.md').blob.text()).name;
     const latest=state.skills.find(s=>s.project===project&&s.slug===name);
-    const r=await publishBrowser({entries:selectedFiles,limits:state.capabilities.limits,project,visibility:$('makePublic').checked?'public':'private',baseVersion:latest?.version??0,api,token:state.token,signal:controller.signal,progress:uploadProgress,pending,onPending:setPending});
+    const r=await publishBrowser({entries:selectedFiles,limits:state.capabilities.limits,project,visibility:$('makePublic').checked?'public':'private',baseVersion:latest?.version??0,api,csrfToken:state.csrfToken,signal:controller.signal,progress:uploadProgress,pending,onPending:setPending});
     toast(r.unchanged?'内容未变化，未新增版本':'发布成功 v'+r.version);selectedFiles=[];$('pickedFiles').textContent='尚未选择文件';$('publishForm').reset();$('uploadStatus').textContent='发布完成';await refresh();view('library');
   }catch(e){$('uploadStatus').textContent=e.message;toast(e.message,true);}
   finally{activeUpload=null;$('publishSubmit').disabled=false;$('cancelUpload').hidden=true;}
@@ -112,16 +165,45 @@ function renderDevices(){const root=$('deviceList');root.replaceChildren();if(!s
   root.append(container);
  }}
 function renderSecurity(){const scope=$('tokenScope');scope.replaceChildren();for(const p of state.projects){const label=node('label');const input=node('input');input.type='checkbox';input.value=p.slug;label.append(input,node('span',null,p.title));scope.append(label);}if(state.me?.role==='admin')refreshTokens();}
-async function refreshTokens(){try{const items=(await api('/api/tokens')).tokens;const root=$('tokensList');root.replaceChildren();for(const t of items){const row=node('div','row-card'),info=node('div');info.append(node('b',null,t.label),node('small',null,t.role+' · '+(t.revoked_at?'已撤销':'有效')+' · '+t.created_at));row.append(info);if(!t.revoked_at){const btn=node('button',null,'撤销');btn.onclick=async()=>{if(!confirm(`撤销 ${t.label}？`))return;try{await api(`/api/tokens/${t.id}/revoke`,'POST',{});await refreshTokens();toast('令牌已撤销');}catch(e){toast(e.message,true);}};row.append(btn);}root.append(row);}}catch(e){toast(e.message,true);}}
-async function issue(ev){ev.preventDefault();try{const role=$('tokenRole').value;const projects=[...$('tokenScope').querySelectorAll('input:checked')].map(x=>x.value);const result=await api('/api/tokens','POST',{label:$('tokenLabel').value,role,projects});$('issuedValue').textContent=result.token;$('issuedToken').hidden=false;await refreshTokens();toast('令牌已生成，请立即复制');}catch(e){toast(e.message,true);}}
+async function refreshTokens(){try{const items=(await api('/api/tokens')).tokens;const root=$('tokensList');root.replaceChildren();for(const t of items){const row=node('div','row-card'),info=node('div');info.append(node('b',null,t.label),node('small',null,({client:'只读',publisher:'发布者',admin:'旧管理员 API'}[t.role]||t.role)+' · '+(t.revoked_at?'已撤销':t.expires_at&&Date.parse(t.expires_at)<=Date.now()?'已过期':'有效')+' · 项目 '+t.project_scope+' · 到期 '+(t.expires_at||'旧令牌未设到期时间')));row.append(info);if(!t.revoked_at){const btn=node('button',null,'撤销');btn.onclick=async()=>{if(!confirm(`撤销 ${t.label}？`))return;try{await sensitiveApi(`/api/tokens/${t.id}/revoke`,'POST',{});await refreshTokens();toast('令牌已撤销');}catch(e){toast(e.message,true);}};row.append(btn);}root.append(row);}}catch(e){toast(e.message,true);}}
+async function issue(ev){ev.preventDefault();try{const role=$('tokenRole').value;const projects=[...$('tokenScope').querySelectorAll('input:checked')].map(x=>x.value);const result=await sensitiveApi('/api/tokens','POST',{label:$('tokenLabel').value,role,projects,expiresInDays:Number($('tokenDays').value)});$('issuedValue').textContent=result.token;$('issuedToken').hidden=false;await refreshTokens();toast('令牌已生成，请立即复制');}catch(e){toast(e.message,true);}}
 async function newProject(ev){ev.preventDefault();try{await api('/api/projects','POST',{slug:$('newProjectSlug').value,title:$('newProjectTitle').value});$('projectForm').reset();toast('项目已创建');await refresh();}catch(e){toast(e.message,true);}}
 document.querySelectorAll('.nav-item').forEach(el=>el.addEventListener('click',()=>view(el.dataset.view)));
 document.querySelectorAll('[data-go]').forEach(el=>el.addEventListener('click',()=>view(el.dataset.go)));
-$('logout').onclick=()=>{state.token='';state.me=null;sessionStorage.removeItem('csh-token');authUi(false);};
-$('authBtn').onclick=async()=>{try{await login($('tokenInput').value);toast('已连接私人 Hub');}catch(e){toast(e.message,true);}};
-$('setupBtn').onclick=async()=>{try{const response=await api('/api/bootstrap','POST',{secret:$('setupSecret').value,label:'Owner'});await login(response.token);$('issuedValue').textContent=response.token;$('issuedToken').hidden=false;view('security');toast('初始化成功：请立即保存管理员令牌');}catch(e){toast(e.message,true);}};
+$('logout').onclick=async()=>{
+  activeUpload?.abort();try{await api('/api/auth/logout','POST',{});clearLogin();await loadAuthStatus();toast('已退出，当前会话已失效');}catch(e){toast(e.message,true);}
+};
+$('loginForm').onsubmit=async e=>{
+  e.preventDefault();$('authBtn').disabled=true;$('authError').textContent='';
+  try{await login($('usernameInput').value,$('passwordInput').value);$('passwordInput').value='';toast('登录成功');}
+  catch(error){$('authError').textContent=error.message;$('passwordInput').value='';}
+  finally{$('authBtn').disabled=false;}
+};
+$('setupForm').onsubmit=async e=>{
+  e.preventDefault();$('setupBtn').disabled=true;
+  try{
+    const username=$('setupUsername').value,password=$('setupPassword').value;
+    if(password!==$('setupPasswordAgain').value)throw Error('两次输入的密码不一致');
+    const headers=state.authStatus?.legacyConversion?{Authorization:'Bearer '+$('legacyAdminToken').value.trim()}:{};
+    await api('/api/auth/setup','POST',{secret:$('setupSecret').value,username,password},headers);
+    $('setupForm').reset();await login(username,password);await loadAuthStatus();toast('管理员账号已创建');
+  }catch(error){toast(error.message,true);}finally{$('setupBtn').disabled=false;}
+};
+$('passwordForm').onsubmit=async e=>{
+  e.preventDefault();const button=e.target.querySelector('button[type="submit"]');button.disabled=true;
+  try{
+    if($('newPassword').value!==$('newPasswordAgain').value)throw Error('两次输入的新密码不一致');
+    await api('/api/auth/password','POST',{currentPassword:$('currentPassword').value,newPassword:$('newPassword').value});
+    clearLogin();toast('密码已修改，所有网页会话已退出；客户端 Token 保持有效');
+  }catch(error){toast(error.message,true);}finally{button.disabled=false;}
+};
+$('revokeAllTokens').onclick=async()=>{
+  if(!confirm('撤销所有 API 令牌？A、B 等客户端之后都需要重新配置。已下载的文件不会被收回。'))return;
+  try{await sensitiveApi('/api/auth/revoke-all-tokens','POST',{confirm:'revoke-all-api-tokens'});$('issuedToken').hidden=true;$('issuedValue').textContent='';await refreshTokens();toast('全部 API 令牌已撤销');}catch(error){toast(error.message,true);}
+};
 $('search').oninput=renderSkills;$('projectFilter').onchange=renderSkills;
 $('skillFile').onchange=e=>onPicked(e,'file');$('skillFolder').onchange=e=>onPicked(e,'folder');$('skillZip').onchange=e=>onPicked(e,'zip');
 $('publishForm').onsubmit=publish;$('tokenForm').onsubmit=issue;$('projectForm').onsubmit=newProject;
 $('copyIssued').onclick=()=>navigator.clipboard.writeText($('issuedValue').textContent).then(()=>toast('已复制到剪贴板')).catch(()=>toast('请手动复制令牌',true));
-if(state.token)login(state.token).catch(()=>{sessionStorage.removeItem('csh-token');state.token='';authUi(false);});else authUi(false);
+authUi(false);
+(async()=>{try{await loadAuthStatus();try{await acceptSession(await api('/api/auth/session'));}catch(error){if(error.status!==401)throw error;}}catch(error){$('authError').textContent=error.message;}})();

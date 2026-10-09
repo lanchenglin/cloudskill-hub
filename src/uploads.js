@@ -1,3 +1,4 @@
+import {publisher,publishVisibility} from './auth.js';
 /** Binary upload sessions, ownership, CAS publication and bounded abandoned-object cleanup. */
 import {resolveLimits,problem,validateEntries} from '../public/lib/policy.js';
 import {layout} from '../public/lib/archive.js';
@@ -7,12 +8,12 @@ const HOUR=3600000,TTL=HOUR,MAX_ACTIVE=3,MAX_HOURLY=20;
 const one=(db,sql,...a)=>db.prepare(sql).bind(...a).first();
 const run=(db,sql,...a)=>db.prepare(sql).bind(...a).run();
 const keys=id=>({archive:`packages/${id}.zip`,manifest:`package-manifests/${id}.json`});
-function isAdmin(u){if(u.role!=='admin')throw problem('Admin token required',403);}
-export function capabilities(env){return {version:'0.2.1',uploadProtocol:2,limits:resolveLimits(env),
+
+export function capabilities(env){return {version:'0.3.0',uploadProtocol:2,limits:resolveLimits(env),
   legacy:{maxFiles:200,maxBundleBytes:6*1024*1024,maxFileBytes:4*1024*1024,maxJsonBytes:9*1024*1024},
   uploads:{sessionTtlSeconds:TTL/1000,maxActive:MAX_ACTIVE,maxStartsPerHour:MAX_HOURLY,resume:'completed-archive',transport:'worker-stream-to-private-r2',zipCompression:['store','deflate']}};}
 export async function startUpload(env,u,project,name,body){
-  isAdmin(u);slug(project);slug(name);if(!body||typeof body!=='object'||Array.isArray(body))throw problem('Expected upload manifest object');
+  publisher(u,project);slug(project);slug(name);if(!body||typeof body!=='object'||Array.isArray(body))throw problem('Expected upload manifest object');
   const db=env.DB,limits=resolveLimits(env);
   if(!await one(db,'SELECT slug FROM projects WHERE slug=?',project))throw problem('Project not found',404);
   const shape=layout(body.files,limits),archiveDigest=body.archiveDigest;
@@ -22,6 +23,7 @@ export async function startUpload(env,u,project,name,body){
   if(!Number.isSafeInteger(base)||base<0||base!==(current?.latest_version??0))throw problem('Skill changed. Refresh before publishing.',409);
   const visibility=body.visibility??current?.visibility??'private';
   if(!['private','public'].includes(visibility))throw problem('Invalid visibility');
+  publishVisibility(u,project,visibility,current?.visibility);
   const id=randomId('up_'),time=Date.now(),expires=time+TTL;
   const manifest={format:2,files:shape.entries,archiveDigest,archiveBytes:shape.size,rawBytes:validateEntries(shape.entries,limits)};
   const inserted=await run(db,`INSERT INTO upload_sessions (id,token_id,project_slug,skill_slug,state,manifest,visibility,base_version,created_at,expires_at)
@@ -33,8 +35,9 @@ export async function startUpload(env,u,project,name,body){
   return {id,state:'created',baseVersion:base,expiresAt:new Date(expires).toISOString(),uploadPath:`/api/uploads/${id}/archive`,finalizePath:`/api/uploads/${id}/finalize`};
 }
 async function owned(env,u,id,{expired=false}={}){
-  isAdmin(u);const row=await one(env.DB,'SELECT * FROM upload_sessions WHERE id=? AND token_id=?',id,u.id);
+  publisher(u);const row=await one(env.DB,'SELECT * FROM upload_sessions WHERE id=? AND token_id=?',id,u.id);
   if(!row)throw problem('Upload not found',404);
+  publisher(u,row.project_slug);
   if(row.state!=='committed'&&!expired&&row.expires_at<=Date.now())throw problem('Upload session expired. Start again.',410);
   if(row.state==='deleting')throw problem('Upload is being removed',410);
   return row;
@@ -65,8 +68,9 @@ export async function finalizeUpload(env,u,id){
   const s=await owned(env,u,id);if(s.state==='committed')return JSON.parse(s.result);
   if(s.state!=='ready')throw problem('Archive not ready. Upload and validate it first.',409);
   const db=env.DB,manifest=JSON.parse(s.manifest),metadata=JSON.parse(s.metadata),key=keys(id),dt=now();
-  const cur=await one(db,`SELECT s.latest_version,v.archive_digest FROM skills s LEFT JOIN skill_versions v
+  const cur=await one(db,`SELECT s.latest_version,s.visibility,v.archive_digest FROM skills s LEFT JOIN skill_versions v
     ON s.project_slug=v.project_slug AND s.slug=v.slug AND v.version=s.latest_version WHERE s.project_slug=? AND s.slug=?`,s.project_slug,s.skill_slug);
+  publishVisibility(u,s.project_slug,s.visibility,cur?.visibility);
   if((cur?.latest_version??0)!==s.base_version)throw problem('Skill changed while uploading. Start a new session against the latest version.',409);
   const unchanged=cur?.archive_digest===manifest.archiveDigest,n=unchanged?s.base_version:s.base_version+1;
   const result={project:s.project_slug,slug:s.skill_slug,version:n,digest:manifest.archiveDigest,archive_digest:manifest.archiveDigest,format:2,unchanged:Boolean(unchanged)};

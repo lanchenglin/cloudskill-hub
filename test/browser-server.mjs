@@ -5,7 +5,7 @@ import {readFile,writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {fixture,api,setup} from './helpers.mjs';
 import {handler} from '../src/index.js';
-const f=fixture(),token=await setup(f.env);await api(f.env,'/api/projects','POST',{slug:'devops',title:'DevOps'},token);
+const f=fixture();
 const root=new URL('../public/',import.meta.url);
 f.env.ASSETS={async fetch(request){
   let name=decodeURIComponent(new URL(request.url).pathname);if(name==='/')name='/index.html';
@@ -20,7 +20,7 @@ const server=http.createServer(async(req,res)=>{
 });
 server.listen(0,'127.0.0.1',async()=>{
   const url=`http://127.0.0.1:${server.address().port}`;
-  if(process.env.BROWSER_AUTH_FILE)await writeFile(process.env.BROWSER_AUTH_FILE,JSON.stringify({url,token}),{mode:0o600});
+  if(process.env.BROWSER_AUTH_FILE)await writeFile(process.env.BROWSER_AUTH_FILE,JSON.stringify({url,username:'browser-admin',password:'Browser isolated test password 12345',bootstrapSecret:f.env.BOOTSTRAP_SECRET}),{mode:0o600});
   console.log('Browser test fixture:',url);
 });
 process.on('SIGTERM',()=>server.close(()=>{f.close();process.exit();}));

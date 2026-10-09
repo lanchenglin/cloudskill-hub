@@ -24,3 +24,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   .topbar { gap: 8px; }
   .breadcrumb { min-width: 0; overflow-wrap: anywhere; }
 }
+
+/* Password forms retain readable spacing and do not widen narrow screens. */
+.auth-form{display:grid;gap:10px}.auth-form input,.setup form input,#passwordForm input,#reauthDialog input{width:100%;min-width:0;box-sizing:border-box}
+.setup form,#passwordForm,#reauthForm{display:grid;gap:12px}#reauthDialog{width:min(420px,calc(100vw - 36px))}#authError,#reauthError{color:#f7a3a3;overflow-wrap:anywhere}#passwordForm{margin-top:20px}

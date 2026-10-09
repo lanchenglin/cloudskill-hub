@@ -1,10 +1,9 @@
 #!/usr/bin/env node
+import {promptSecret} from './secret-input.mjs';
 import {publishSource} from './transfer.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { createInterface } from 'node:readline/promises';
-import { stdin as input, stdout as output } from 'node:process';
 import { randomBytes } from 'node:crypto';
 import { hubOrigin, parseAgents, loadConfig, saveConfig, loadState, request, catalog, install, check, heartbeat, subscribe, sync, localFiles, files, withLock, readJson } from './manager.mjs';
 import { frontmatter, decode64 } from '../src/core.js';
@@ -22,7 +21,7 @@ async function main(){const [command,...args]=process.argv.slice(2);
   if(command==='login'){
     const url=hubOrigin(args[0]);let token=process.env.CLOUDSKILL_TOKEN;
     if(!token){if(!process.stdin.isTTY)throw Error('Set CLOUDSKILL_TOKEN in the environment for noninteractive login');
-      const rl=createInterface({input,output});try{token=(await rl.question('Paste your Hub access token (input will be visible): ')).trim();}finally{rl.close();}}
+      token=(await promptSecret('Hub access token (hidden): ')).trim();}
     // Validate before modifying the on-disk login so a typo never destroys a valid device session.
     const identity=await request({url,token},'GET','/api/me');
     const previous=await readJson(files().config,null);

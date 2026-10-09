@@ -2,26 +2,41 @@
 
 本说明对应 main 当前代码。使用者应先完成 [首次部署](SETUP.md)，日常手动分发见 [USAGE.md](USAGE.md)。上传协议编号和文件 format 字段是接口标识，不要求安装多个应用版本。
 
-除 `/api/bootstrap` 外，所有 `/api/*` 必须使用 `Authorization: Bearer csh_<48 hex>`。不要把令牌放进 URL、普通日志或 Git。普通客户端只能读取已授权项目；发布、上传会话、令牌管理和清理要求管理员。上传会话还绑定具体创建令牌，不是管理员之间共享。
+认证有两条路径：网页用账号密码建立 HttpOnly Cookie 会话；CLI 用 `Authorization: Bearer csh_<48 hex>`。公开 `/api/auth/status`、登录与首次设置不要求既有会话，但其写操作要求 `X-CloudSkill-Request: 1`，浏览器来源必须与 Hub 相同；设置还需要初始化 Secret 或原管理员凭据。
 
-响应默认 `Cache-Control: private, no-store`，API 不开放跨源 CORS。JSON 请求发送 `Content-Type: application/json`；ZIP 流使用 `application/zip`。文件下载返回文件字节而不是 JSON。
+所有 Cookie 鉴权的写操作额外要求 `X-CSRF-Token`。登录/会话接口返回 CSRF 值而不是 Cookie 明文。API Token 请求不依赖 Cookie，也不因无效 Bearer 回退为网页身份。响应不缓存、不开放跨站 CORS，秘密不放 URL。发布者只操作授权项目的私有技能，客户端只读，网页管理员负责管理。
+
+### 账号接口
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/auth/status` | 是否初始化、是否需原管理员转换；不暴露账号名称 |
+| POST | `/api/auth/setup` | `{secret?,username,password}`；初次 Secret 或显式原管理员 Bearer，单例初始化 |
+| POST | `/api/auth/login` | `{username,password}`；Set-Cookie，返回 username/role/csrfToken/expiresAt |
+| GET | `/api/auth/session` | Cookie 会话信息与 csrfToken |
+| POST | `/api/auth/logout` | Cookie + CSRF，当前会话失效 |
+| POST | `/api/auth/reauth` | Cookie + CSRF + `{password}`；延续 5 分钟敏感操作验证 |
+| POST | `/api/auth/password` | Cookie + CSRF + `{currentPassword,newPassword}`；撤销全部网页会话，不撤销 API Token |
+| POST | `/api/auth/revoke-all-tokens` | 最近验证 + CSRF + `{confirm:"revoke-all-api-tokens"}`，显式撤销所有 API Token |
+
+没有公网忘记密码重置接口；可信命令见 [AUTH.md](AUTH.md)。`/api/bootstrap` Token-only 接口返回 410，不能绕过密码设置。
 
 ## 主要接口
 
 | 方法 | 路径 | 权限 / 用途 |
 |---|---|---|
 | GET | `/healthz` | 公开健康与应用版本 |
-| POST | `/api/bootstrap` | 初始化 Secret 创建首个管理员 |
+| POST | `/api/bootstrap` | 已关闭（410），使用账号初始化接口 |
 | GET | `/api/me` | 当前令牌身份与范围 |
 | GET | `/api/projects` | 已授权项目 |
 | POST | `/api/projects` | 管理员，`{slug,title}` |
 | GET | `/api/catalog?project=<slug>` | 可安装的最新版本；project 可省略 |
 | GET | `/api/capabilities` | 上传协议编号、实际限制、JSON 小包兼容限制与会话参数 |
-| POST | `/api/projects/{p}/skills/{s}/uploads` | 管理员创建 ZIP 上传会话 |
-| GET | `/api/uploads` | 当前管理员令牌最近 50 条会话 |
-| GET | `/api/uploads/{id}` | 当前令牌的会话状态、实际 visibility 和 manifest |
-| PUT | `/api/uploads/{id}/archive` | 当前令牌上传规范 ZIP 二进制流 |
-| POST | `/api/uploads/{id}/finalize` | 当前令牌将 ready 内容提交为版本；幂等 |
+| POST | `/api/projects/{p}/skills/{s}/uploads` | 管理员或授权发布者创建 ZIP 上传会话 |
+| GET | `/api/uploads` | 当前发布身份最近 50 条会话 |
+| GET | `/api/uploads/{id}` | 当前发布身份的会话状态、实际 visibility 和 manifest |
+| PUT | `/api/uploads/{id}/archive` | 当前发布身份上传规范 ZIP 二进制流 |
+| POST | `/api/uploads/{id}/finalize` | 当前发布身份将 ready 内容提交为版本；幂等 |
 | DELETE | `/api/uploads/{id}` | 取消尚未 committed 的会话 |
 | POST | `/api/uploads/cleanup` | 管理员触发一次有界清理，通常由 Cron 自动执行 |
 | POST | `/api/projects/{p}/skills/{s}` | JSON 小包兼容发布，不是默认上传方式 |
@@ -30,9 +45,9 @@
 | GET | `/api/projects/{p}/skills/{s}/versions/{n}/download` | 固定版本 ZIP，流式返回 |
 | GET | `/api/projects/{p}/skills/{s}/versions/{n}/file?path=SKILL.md` | 单文件读取，path 可为 URL 编码的安全相对路径 |
 | GET | `/api/projects/{p}/skills/{s}/download` | 最新 ZIP；对一致性敏感的客户端应使用版本固定地址 |
-| POST | `/api/projects/{p}/skills/{s}/rollback` | 管理员，`{version,baseVersion?}` 创建新的历史引用版本 |
+| POST | `/api/projects/{p}/skills/{s}/rollback` | 管理员或项目发布者，`{version,baseVersion?}` 创建新的历史引用版本 |
 | GET | `/api/tokens` | 管理员查看令牌元信息，不返回已有令牌明文 |
-| POST | `/api/tokens` | 管理员，`{label,role,projects}` 签发令牌 |
+| POST | `/api/tokens` | 管理员，`{label,role,projects,expiresInDays?}`；role=publisher/client，有效期1–365天，默认90天 |
 | POST | `/api/tokens/{id}/revoke` | 管理员撤销其他令牌 |
 | GET | `/api/devices` | 管理员查看客户端最后上报 |
 | POST | `/api/devices/heartbeat` | 客户端上报已授权项目的安装清单 |
@@ -46,7 +61,7 @@
 
 ```json
 {
-  "version": "0.2.1",
+  "version": "0.3.0",
   "uploadProtocol": 2,
   "limits": {
     "maxFiles": 1000,
@@ -141,3 +156,11 @@ GET /.well-known/agent-skills/{skill}/{archiveDigest}.zip
 | 500 / 503 | 内部错误、配置或后端资源问题；客户端收到通用信息，管理员查看服务日志 |
 
 平台自身还可能返回请求限制或超时错误。不要无限重试管理员发布；先检查会话结果，避免重复版本或无意义 R2 写入。
+
+## 权限与会话补充
+
+Cookie 管理员超过最近验证时限时，签发/撤销操作返回 403 `reauth_required`；网页先调用 reauth，再重试。新 Token 返回 `{id,token,role,projects,expiresAt}`，明文只出现一次；列表含 `expires_at`、`last_used_at`，不返回 Token。新建 admin API Token 请求被拒绝。旧 API Token 可兼容直到到期或撤销。
+
+发布者禁止创建 public 包或编辑已公开 Skill；权限检查同时覆盖 JSON、ZIP 会话、上传、finalize 和回滚。web 身份的上传会话绑定内部管理员主体，不是 Cookie 原值；同一管理员重新登录可续接。
+
+新增 `0003_web_auth.sql` 是加法迁移。role=publisher 在内部通过 client + can_publish 标记表示；调用方使用 API 返回的有效 role，不直接推测数据库列。

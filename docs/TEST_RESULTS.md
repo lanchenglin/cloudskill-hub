@@ -1,55 +1,29 @@
-# 当前应用代码测试报告
+# 当前代码测试报告
 
-当前代码版本：**0.2.1**。本报告只汇总当前应用的验证情况，不将开发阶段的中间版本报告作为安装指南。
+应用版本 0.3.0。测试与实际 Cloudflare 生产部署必须区分；本任务没有调用用户生产 Cloudflare API。
 
-**部署状态：尚未在实际使用的 Cloudflare 账号完成首次部署，A/B 真实 AI 使用验收也尚未完成。自动化测试不是生产部署记录。**
+## 已执行
 
-## 验证依据
-
-应用代码提交：`eef8bd8b6990d0e6f2e466ac0a18cfeda4a70980`。本轮仅整理文档，不改变应用代码、测试、数据库 SQL 或部署配置。
-
-已核对该提交的 main 分支 [GitHub Actions 检查](https://github.com/lanchenglin/cloudskill-hub/actions/runs/37922337179)：四个 job 均完成且为 **success**。
-
-| 环境 / 检查 | 结果及范围 |
+| 检查 | 本地结果 |
 |---|---|
-| Linux，Node 22.23.3 / 24.18.1 本地检查 | 两个运行时分别 40 通过、0 失败 |
-| GitHub Ubuntu，Node 22 | 通过语法、安全与集成测试 |
-| GitHub Windows，Node 22 | 通过语法、安全与集成测试 |
-| 原生本地 workerd + 本地 D1/R2 | 通过全部初始化 SQL、7 MiB 上传、三端目录安装、重复发布及清理 |
-| Chromium 网页 | 通过 ZIP 上传、编辑、固定版本下载和 390/320 px 布局检查 |
+| Node 24.18.1 语法、安全、服务端/客户端测试 | 54 项通过，0 失败 |
+| 原生本地 workerd + D1 + R2 | 通过：scrypt、账号初始化/登录/改密/退出、publisher/client、7 MiB 上传、三端目录安装、幂等与清理 |
+| Chromium 网页 | 通过：首次账号设置、Cookie 会话恢复、publisher 签发、ZIP 上传/编辑/下载、密码修改、退出、危险包拒绝、320/390 px 布局 |
+| AI 初始化脚本 | 通过：生成私有账号文件和 A/B scoped Token、重复执行不重复签发、丢失凭据时停止、不回显秘密 |
+| 可信密码恢复 SQL / 原生本地 CLI | 通过：改密后会话失效、可选 Token 撤销、版本条件阻止过期写入 |
 
-运行详情和原始输出以链接中的 job logs 为准。CI 本地 workerd 使用临时资源，不接触生产 Cloudflare 数据。
+GitHub 的 Windows / Ubuntu 和独立 Chromium / workerd 检查由 [当前提交的 CI](https://github.com/lanchenglin/cloudskill-hub/actions/workflows/ci.yml) 运行，以具体 commit 对应结果为准，不把旧提交结果当作新代码验收。
 
-## 40 项自动化测试覆盖
+## 覆盖重点
 
-- 鉴权、项目权限、发布、技能版本/回滚、公开发现、私有历史访问和安全响应头。
-- STORE / DEFLATE ZIP、单层包装目录、中文文件名、Hermes metadata、执行位及确定性打包。
-- 路径穿越、隐藏敏感文件、软链接、特殊文件、加密包、压缩炸弹、CRC/摘要和长度造假、路径冲突等拒绝场景。
-- 上传会话权限、上传/提交分离、校验失败不发布、重复提交、过期和取消清理、并发版本冲突及已发布包引用保护。
-- 7 MiB 文件，以及 **50 MiB / 1000 文件完整默认边界（模拟 D1/R2）**。不是线上大包生产压测。
-- CLI 目录/ZIP 发布、三端目录安装、手动更新、本地修改保护、响应丢失后的会话恢复、安装状态写入失败恢复。
-- 下载前 manifest/读取上限校验、恢复公开/私有冲突、R2 提前失败与背压取消、被删除托管目录强制恢复、未变化同步不重复下载。
+保留原有 40 项上传/下载/安装回归，并增加密码随机盐、Unicode/长度限制、无默认密码、无自动全站 API Token、会话 Cookie 属性、CSRF、来源校验、错误统一、过期/退出、密码变更、重新验证、Token 到期/撤销、项目越权、公开权限拒绝、旧数据转换、初始化及可信恢复测试。
 
-网页下载的 ZIP 还使用 Python `zipfile` 独立核对 CRC 和文本内容，避免只由同一实现自我验证。
+原有边界仍包括模拟 D1/R2 下的 50 MiB + 1000 文件、ZIP/路径攻击、校验错误、并发版本冲突、恢复/清理和本地修改保护。真实本地 Worker 的大包测试是 7 MiB，不冒充线上满额压力测试。
 
-## 本地复查命令
+本地 Snap Chromium 的 /tmp 隔离影响了测试文件路径，测试支持显式 BROWSER_TEMP_DIR 和下载目录，并直接传送 ZIP 字节；上传和独立 Python ZIP/CRC 下载断言均保留并通过。GitHub 使用独立 Playwright Chromium。
 
-```bash
-# Node.js 22.16+，源码根目录，无生产凭据
-npm run check
+## 未完成，不能声称已经验收
 
-# 先 npm install，使用真实本地 Workers 运行时
-node scripts/worker-smoke.mjs
+用户真实 Cloudflare 账号、免费/付费套餐 CPU/内存/账单、WAF 和分布式高并发；真实 A/B 机器中的模型发现并执行 Skills；原生第三方 Skills CLI 的完整互通；所有浏览器/手机真机；生产灾备和断电故障演练；独立渗透测试或安全认证。
 
-# 另需 Python、Playwright 与 Chromium
-python scripts/browser-smoke.py
-```
-
-## 尚未完成的验收
-
-- 实际使用的 Cloudflare 账号首次部署、WAF、CPU/内存/计费、满额上传和长期并发。
-- A/B 真机按使用说明手动发布/更新，并在实际 Hermes、Claude Code 或 Codex 会话发现和执行技能。
-- 第三方 `skills` / Hermes 原生 CLI 对线上域名的完整发现和更新互操作。
-- 手机真机、所有 WSL 挂载/权限组合、故障断电与灾备恢复演练。
-
-当前目录适配和内容完整性测试不代表所有 Agent 版本都能加载技能；私有访问测试也不代表实现了独立凭据保险库。首次使用按 [SETUP.md](SETUP.md) 和 [USAGE.md](USAGE.md) 验收。
+强密码哈希会消耗 CPU，应在目标套餐评估，不为通过免费额度降低哈希强度。当前客户端 Token 不等于技能内容密钥保险库。

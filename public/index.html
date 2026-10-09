@@ -30,13 +30,26 @@
     <section id="auth-card" class="auth-panel">
       <div class="eyebrow">SELF-HOSTED / ZERO EXTERNAL DATABASES</div>
       <h1>一个技能库，<br/><em>连接你的所有 AI 工具。</em></h1>
-      <p>管理标准 Agent Skills，向 Claude Code、Codex 和 Hermes Agent 私有分发。凭据仅保存在本页会话中。</p>
-      <div class="auth-form">
-        <label for="tokenInput">访问令牌（Bearer Token）</label>
-        <input id="tokenInput" type="password" placeholder="csh_..." autocomplete="off" />
-        <button id="authBtn" class="primary">连接私人 Hub →</button>
-      </div>
-      <details class="setup"><summary>首次部署？点击初始化管理员</summary><p>先配置 Cloudflare Secret <code>BOOTSTRAP_SECRET</code>，再输入此 Secret。初始化成功后，管理员令牌只显示一次，请离线保存。</p><input id="setupSecret" type="password" placeholder="BOOTSTRAP_SECRET" autocomplete="off" /><button id="setupBtn" class="secondary">创建管理员令牌</button></details>
+      <p>网页使用管理员账号密码。Hermes、Claude Code 等客户端使用各自的访问令牌。</p>
+      <form id="loginForm" class="auth-form">
+        <label for="usernameInput">管理员账号</label>
+        <input id="usernameInput" autocomplete="username" required minlength="3" maxlength="64" placeholder="首次初始化时设置的账号" />
+        <label for="passwordInput">密码</label>
+        <input id="passwordInput" type="password" autocomplete="current-password" required maxlength="256" />
+        <button id="authBtn" type="submit" class="primary">登录私人 Hub →</button>
+        <p id="authError" role="alert"></p>
+      </form>
+      <details id="setupPanel" class="setup" hidden><summary>首次部署？初始化管理员账号</summary>
+        <p id="setupHelp">没有默认密码。先设置 Cloudflare BOOTSTRAP_SECRET，再创建自己的管理员账号。</p>
+        <form id="setupForm">
+          <label for="setupSecret">首次初始化 Secret</label><input id="setupSecret" type="password" autocomplete="off" />
+          <label id="legacyTokenLabel" for="legacyAdminToken" hidden>原管理员 Token（仅用于首次转换）</label><input id="legacyAdminToken" type="password" autocomplete="off" hidden />
+          <label for="setupUsername">管理员账号</label><input id="setupUsername" autocomplete="username" minlength="3" maxlength="64" required />
+          <label for="setupPassword">密码（15–128 字符，可使用空格和中文）</label><input id="setupPassword" type="password" autocomplete="new-password" minlength="15" maxlength="256" required />
+          <label for="setupPasswordAgain">再次输入密码</label><input id="setupPasswordAgain" type="password" autocomplete="new-password" required maxlength="256" />
+          <button id="setupBtn" type="submit" class="secondary">创建管理员账号</button>
+        </form>
+      </details>
     </section>
     <div id="dashboard" hidden>
       <section id="view-library" class="view">
@@ -73,14 +86,16 @@ Step-by-step instructions...</pre><p id="policyHelp"></p><p>同一份 <code>SKIL
 cloudskill subscribe coding --agents claude,codex,hermes
 cloudskill sync
 cloudskill check</pre></div></section>
-      <section id="view-security" class="view" hidden><div class="page-title"><div class="eyebrow">SECURITY / LEAST PRIVILEGE</div><h1>访问权限</h1><p>为每台设备单独签发只读令牌，支持限定项目和立即撤销。</p></div>
-        <div class="two-col"><form id="tokenForm" class="panel"><h3>签发访问令牌</h3><label>令牌备注</label><input id="tokenLabel" required maxlength="80" placeholder="例如 WSL-Dev / Windows-Codex" /><label>角色</label><select id="tokenRole"><option value="client">客户端（只读）</option><option value="admin">管理员（读写）</option></select><label>可访问项目（客户端必须选择）</label><div id="tokenScope" class="scope-picker"></div><button type="submit" class="primary wide">生成令牌 →</button><div id="issuedToken" class="issued" hidden><b>请立即复制，此后无法再次查看：</b><code id="issuedValue"></code><button type="button" class="secondary" id="copyIssued">复制</button></div></form>
+      <section id="view-security" class="view" hidden><div class="page-title"><div class="eyebrow">SECURITY / LEAST PRIVILEGE</div><h1>访问权限</h1><p>A 使用限定项目的发布令牌，B 使用只读令牌；每台设备独立授权，支持到期和撤销。</p></div>
+        <div class="two-col"><form id="tokenForm" class="panel"><h3>签发访问令牌</h3><label>令牌备注</label><input id="tokenLabel" required maxlength="80" placeholder="例如 WSL-Dev / Windows-Codex" /><label>角色</label><select id="tokenRole"><option value="client">客户端（只读）</option><option value="publisher">发布者（限定项目，仅私有技能）</option></select><label for="tokenDays">有效期</label><select id="tokenDays"><option value="30">30 天</option><option value="90" selected>90 天</option><option value="365">365 天</option></select><label>授权项目（必须选择）</label><div id="tokenScope" class="scope-picker"></div><button type="submit" class="primary wide">生成令牌 →</button><div id="issuedToken" class="issued" hidden><b>请立即复制，此后无法再次查看：</b><code id="issuedValue"></code><button type="button" class="secondary" id="copyIssued">复制</button></div></form>
         <form id="projectForm" class="panel"><h3>新建项目分类</h3><label>项目英文 ID（不可更改）</label><input id="newProjectSlug" pattern="[a-z0-9]+(-[a-z0-9]+)*" placeholder="devops" required maxlength="64"/><label>展示名称</label><input id="newProjectTitle" placeholder="运维自动化" required maxlength="100"/><button class="secondary wide" type="submit">＋ 创建项目</button><p>建议创建 devops、coding、video、automation 等项目，每个设备只授予必要权限。</p></form></div>
-        <div class="panel"><h3>令牌列表</h3><div id="tokensList" class="rows"></div></div>
+        <div class="panel"><h3>令牌列表</h3><div id="tokensList" class="rows"></div><button id="revokeAllTokens" class="secondary" type="button">撤销全部客户端 / API 令牌</button><p class="muted">此操作会中断所有客户端后续访问，但不会退出当前网页。修改密码不会自动执行此操作。</p></div>
+        <form id="passwordForm" class="panel"><h3>修改管理员密码</h3><p>修改后所有浏览器会话失效；客户端 Token 保持有效。怀疑凭据泄露时，另行撤销 Token。</p><label for="currentPassword">当前密码</label><input id="currentPassword" type="password" autocomplete="current-password" required maxlength="256" /><label for="newPassword">新密码（15–128 字符）</label><input id="newPassword" type="password" autocomplete="new-password" minlength="15" maxlength="256" required /><label for="newPasswordAgain">确认新密码</label><input id="newPasswordAgain" type="password" autocomplete="new-password" required maxlength="256" /><button class="primary" type="submit">修改密码并重新登录</button></form>
       </section>
     </div>
   </main>
 </div>
 <dialog id="detailDialog"><form method="dialog"><button class="dialog-close" aria-label="关闭">×</button></form><div id="detailBody"></div></dialog>
+<dialog id="reauthDialog"><form id="reauthForm"><h3>再次确认管理员身份</h3><p>此敏感操作需要重新验证密码。</p><label for="reauthPassword">当前密码</label><input id="reauthPassword" type="password" autocomplete="current-password" required maxlength="256" /><p id="reauthError" role="alert"></p><button type="submit" class="primary">确认</button><button type="button" id="cancelReauth" class="secondary">取消</button></form></dialog>
 </body>
 </html>

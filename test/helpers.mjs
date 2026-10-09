@@ -6,7 +6,7 @@ import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {join,dirname} from 'node:path';
 import {handler} from '../src/index.js';
-import {encode64} from '../src/core.js';
+import {encode64,randomId,tokenHash,now} from '../src/core.js';
 
 class DbAdapter {
   constructor(db){this.db=db;}
@@ -51,8 +51,11 @@ export async function api(env,path,method='GET',data=null,token=null){
   const response=await handler(new Request(url,{method,headers,body:data?JSON.stringify(data):undefined}),env);
   return {response,status:response.status,data:await response.json()};
 }
+// Compatibility fixtures model an existing API-admin instance. Fresh password setup is
+// exercised through the public API in auth.test.mjs and the native/browser smoke tests.
 export async function setup(env){
-  const resp=await api(env,'/api/bootstrap','POST',{secret:env.BOOTSTRAP_SECRET});
-  if(resp.status!==201)throw new Error('Test bootstrap failed: '+JSON.stringify(resp.data));
-  return resp.data.token;
+  const token=randomId('csh_');
+  await env.DB.prepare("INSERT INTO access_tokens (id,label,token_hash,role,project_scope,created_at) VALUES (?,?,?,'admin','[]',?)")
+    .bind(randomId('t_'),'Legacy test administrator',await tokenHash(token),now()).run();
+  return token;
 }

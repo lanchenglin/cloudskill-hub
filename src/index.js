@@ -1,3 +1,4 @@
+import {principal,admin,access,allowed,publisher,publishVisibility,recent,issueToken,authRoutes,cleanupAuth} from './auth.js';
 import {capabilities,startUpload,uploadStatus,uploadArchive,finalizeUpload,cancelUpload,cleanupUploads} from './uploads.js';
 import {fileBody,versionPayload,readPackage} from './packages.js';
 import { slug, normalizedFiles, decode64, frontmatter, fileDigest, tokenHash, randomId, sha256, now, invalid } from './core.js';
@@ -21,47 +22,14 @@ async function readJson(request, max=9*1024*1024) {
   let total=0; const parts=[];
   while(true){const {value,done}=await reader.read();if(done)break;total+=value.byteLength;if(total>max){await reader.cancel();fail('Body too large',413);}parts.push(value);}
   const raw=new Uint8Array(total);let off=0;for(const p of parts){raw.set(p,off);off+=p.length;}
-  try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(raw));}catch{fail('Invalid JSON');}
+  let parsed;try{parsed=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(raw));}catch{fail('Invalid JSON');}
+  if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))fail('Expected a JSON object');
+  return parsed;
 }
 async function queryOne(db,sql,...args){return db.prepare(sql).bind(...args).first();}
 async function queryAll(db,sql,...args){const r=await db.prepare(sql).bind(...args).all();return r.results||[];}
 async function queryRun(db,sql,...args){return db.prepare(sql).bind(...args).run();}
 async function audit(env,actor,action,detail){await queryRun(env.DB,'INSERT INTO audit_log (id,actor,action,detail,created_at) VALUES (?,?,?,?,?)',randomId('a_'),actor,action,JSON.stringify(detail).slice(0,1000),now());}
-async function principal(request,env){
-  const header=request.headers.get('authorization')||'';
-  if(!/^Bearer csh_[a-f0-9]{48}$/.test(header))fail('Authentication required',401);
-  const token=header.slice(7);
-  const hash=await tokenHash(token);
-  const row=await queryOne(env.DB,'SELECT id,label,role,project_scope FROM access_tokens WHERE token_hash=? AND revoked_at IS NULL',hash);
-  if(!row)fail('Invalid or revoked token',401);
-  let projects=[];try{projects=JSON.parse(row.project_scope);}catch{fail('Invalid permission scope',500);}
-  return {id:row.id,label:row.label,role:row.role,projects};
-}
-const admin=(u)=>{if(u.role!=='admin')fail('Admin token required',403);};
-const access=(u,p)=>{if(u.role!=='admin'&&!u.projects.includes(p))fail('Project access denied',403);};
-const allowed=(u,p)=>u.role==='admin'||u.projects.includes(p);
-async function issueToken(env,label,role,projects){
-  if(typeof label!=='string'||!label.trim()||label.length>80)fail('Token label required');
-  if(!['admin','client'].includes(role))fail('Invalid token role');
-  if(!Array.isArray(projects)||projects.length>50)fail('Invalid scope');
-  projects=Array.from(new Set(projects.map(slug)));
-  if(role==='client'&&!projects.length)fail('Client token needs at least one project');
-  for(const p of projects)if(!await queryOne(env.DB,'SELECT slug FROM projects WHERE slug=?',p))fail('Unknown project '+p);
-  const token=randomId('csh_');
-  await queryRun(env.DB,'INSERT INTO access_tokens (id,label,token_hash,role,project_scope,created_at) VALUES (?,?,?,?,?,?)',randomId('t_'),label.trim(),await tokenHash(token),role,JSON.stringify(role==='admin'?[]:projects),now());
-  return {token,role,projects};
-}
-async function bootstrap(request,env){
-  if(!env.BOOTSTRAP_SECRET||env.BOOTSTRAP_SECRET.length<24)fail('BOOTSTRAP_SECRET must be configured (24+ characters)',503);
-  const body=await readJson(request,1024);
-  const provided=typeof body.secret==='string'?body.secret:'';
-  if((await tokenHash(provided))!==(await tokenHash(env.BOOTSTRAP_SECRET)))fail('Invalid bootstrap secret',403);
-  const existing=await queryOne(env.DB,'SELECT id FROM access_tokens WHERE role=\'admin\' LIMIT 1');
-  if(existing)fail('Instance already initialized; bootstrap permanently disabled',409);
-  const result=await issueToken(env,body.label||'Owner','admin',[]);
-  await audit(env,'bootstrap','bootstrap',{});
-  return json({...result,message:'Store this admin token now; it will never be displayed again'},201);
-}
 async function getCatalog(env,u,p){
   if(p){slug(p);access(u,p);}
   const all=await queryAll(env.DB,`SELECT s.project_slug AS project,s.slug,s.description,s.visibility,s.latest_version AS version,s.updated_at AS updated,
@@ -77,12 +45,14 @@ async function readArtifact(env,row){const obj=await env.BUCKET.get(row.artifact
 async function zipDownload(env,row,publicRead=false){const obj=await env.BUCKET.get(row.archive_key);if(!obj)fail('Archive unavailable',503);return plain(obj.body,'application/zip',publicRead,`${row.slug}-v${row.version}.zip`);}
 
 async function publish(request,env,u,p,s){
-  admin(u);slug(p);slug(s);
+  publisher(u,p);slug(p);slug(s);
   if(!await queryOne(env.DB,'SELECT slug FROM projects WHERE slug=?',p))fail('Project does not exist',404);
   const input=await readJson(request);
   const {files,meta}=normalizedFiles(input.files,s);
   const visibility=input.visibility??'private';
   if(!['public','private'].includes(visibility))fail('visibility must be public or private');
+  const existingSkill=await queryOne(env.DB,'SELECT visibility FROM skills WHERE project_slug=? AND slug=?',p,s);
+  publishVisibility(u,p,visibility,existingSkill?.visibility);
   if(visibility==='public'){
     const conflict=await queryOne(env.DB,'SELECT project_slug FROM skills WHERE slug=? AND visibility=\'public\' AND project_slug<>?',s,p);
     if(conflict)fail('Public skill name already used by another project',409);
@@ -111,10 +81,11 @@ async function publish(request,env,u,p,s){
   return json({project:p,slug:s,version:n,digest,archive_digest:archiveDigest},201);
 }
 async function rollback(request,env,u,p,s){
-  admin(u);const body=await readJson(request,1000);const version=body.version;
+  publisher(u,p);const body=await readJson(request,1000);const version=body.version;
   if(!Number.isSafeInteger(version)||version<1)fail('Invalid version');
   const old=await latestVersion(env,p,s,version),cur=await latestVersion(env,p,s);
   if(!old||!cur)fail('Version not found',404);
+  publishVisibility(u,p,cur.visibility,cur.visibility);
   if(old.artifact_digest===cur.artifact_digest)return json({unchanged:true,version:cur.version});
   if(body.baseVersion!==undefined&&body.baseVersion!==cur.latest_version)fail('Skill changed. Refresh before rollback.',409);
   const oldArtifact=await readPackage(env,old);
@@ -155,8 +126,9 @@ async function wellKnown(req,env,u){
 export async function handler(request,env){
   try{
     const url=new URL(request.url),path=url.pathname,method=request.method.toUpperCase();
-    if(method==='GET'&&path==='/healthz')return json({ok:true,app:'cloudskill-hub',version:'0.2.1'},200,true);
-    if(method==='POST'&&path==='/api/bootstrap')return await bootstrap(request,env);
+    if(method==='GET'&&path==='/healthz')return json({ok:true,app:'cloudskill-hub',version:'0.3.0'},200,true);
+    const authResponse=await authRoutes(request,env,readJson,json);
+    if(authResponse)return authResponse;
     if(method==='GET'&&path.startsWith('/.well-known/'))return await wellKnown(request,env);
     if(!path.startsWith('/api/')){
       if((method==='GET'||method==='HEAD')&&env.ASSETS){
@@ -170,10 +142,10 @@ export async function handler(request,env){
     }
     const u=await principal(request,env);
     if(method==='GET'&&path==='/api/capabilities')return json(capabilities(env));
-    if(method==='GET'&&path==='/api/uploads'){admin(u);return json({uploads:await queryAll(env.DB,'SELECT id,project_slug AS project,skill_slug AS slug,state,base_version AS baseVersion,created_at,expires_at FROM upload_sessions WHERE token_id=? ORDER BY created_at DESC LIMIT 50',u.id)});}
+    if(method==='GET'&&path==='/api/uploads'){publisher(u);return json({uploads:await queryAll(env.DB,'SELECT id,project_slug AS project,skill_slug AS slug,state,base_version AS baseVersion,created_at,expires_at FROM upload_sessions WHERE token_id=? ORDER BY created_at DESC LIMIT 50',u.id)});}
     if(method==='POST'&&path==='/api/uploads/cleanup'){admin(u);return json(await cleanupUploads(env));}
     const begin=/^\/api\/projects\/([^/]+)\/skills\/([^/]+)\/uploads$/.exec(path);
-    if(begin&&method==='POST'){admin(u);return json(await startUpload(env,u,slug(begin[1]),slug(begin[2]),await readJson(request,1024*1024)),201);}
+    if(begin&&method==='POST'){publisher(u,slug(begin[1]));return json(await startUpload(env,u,slug(begin[1]),slug(begin[2]),await readJson(request,1024*1024)),201);}
     const upload=/^\/api\/uploads\/(up_[a-f0-9]{48})(?:\/(archive|finalize))?$/.exec(path);
     if(upload){
       if(method==='GET'&&!upload[2])return json(await uploadStatus(env,u,upload[1]));
@@ -181,7 +153,7 @@ export async function handler(request,env){
       if(method==='PUT'&&upload[2]==='archive')return json(await uploadArchive(env,u,upload[1],request));
       if(method==='POST'&&upload[2]==='finalize')return json(await finalizeUpload(env,u,upload[1]));
     }
-    if(method==='GET'&&path==='/api/me')return json({label:u.label,role:u.role,projects:u.projects});
+    if(method==='GET'&&path==='/api/me')return json({label:u.label,role:u.role,projects:u.projects,authType:u.authType,expiresAt:u.expiresAt});
     if(method==='GET'&&path==='/api/projects'){
       const rows=await queryAll(env.DB,'SELECT * FROM projects ORDER BY slug');
       return json({projects:rows.filter(r=>allowed(u,r.slug))});
@@ -194,17 +166,17 @@ export async function handler(request,env){
     }
     if(method==='GET'&&(path==='/api/catalog'||path==='/api/skills'))return json({skills:await getCatalog(env,u,url.searchParams.get('project'))});
     if(method==='GET'&&path==='/api/tokens'){
-      admin(u);return json({tokens:await queryAll(env.DB,'SELECT id,label,role,project_scope,created_at,revoked_at FROM access_tokens ORDER BY created_at DESC')});
+      admin(u);return json({tokens:await queryAll(env.DB,`SELECT id,label,CASE WHEN role='client' AND can_publish=1 THEN 'publisher' ELSE role END AS role,project_scope,created_at,revoked_at,expires_at,last_used_at FROM access_tokens WHERE credential_type='api' ORDER BY created_at DESC`)});
     }
     if(method==='POST'&&path==='/api/tokens'){
-      admin(u);const b=await readJson(request,4096);const token=await issueToken(env,b.label,b.role,b.projects||[]);
+      recent(u);const b=await readJson(request,4096);const token=await issueToken(env,b.label,b.role,b.projects||[],b.expiresInDays??90);
       await audit(env,u.label,'issue_token',{role:b.role,label:b.label});return json(token,201);
     }
     let m=/^\/api\/tokens\/([a-zA-Z0-9_-]+)\/revoke$/.exec(path);
     if(m&&method==='POST'){
-      admin(u);if(m[1]===u.id)fail('Cannot revoke the token currently in use');
-      const row=await queryOne(env.DB,'SELECT role FROM access_tokens WHERE id=? AND revoked_at IS NULL',m[1]);if(!row)fail('Token not found',404);
-      if(row.role==='admin'){
+      recent(u);if(m[1]===u.id)fail('Cannot revoke the token currently in use');
+      const row=await queryOne(env.DB,"SELECT role FROM access_tokens WHERE id=? AND credential_type='api' AND revoked_at IS NULL",m[1]);if(!row)fail('Token not found',404);
+      if(row.role==='admin'&&!await queryOne(env.DB,'SELECT id FROM web_admin WHERE id=1')){
         const admins=await queryOne(env.DB,'SELECT COUNT(*) AS total FROM access_tokens WHERE role=\'admin\' AND revoked_at IS NULL');
         if(admins.total<=1)fail('Cannot revoke last admin');
       }
@@ -249,7 +221,9 @@ export async function handler(request,env){
   }catch(e){
     const status=Number(e.status)|| (String(e.message).includes('UNIQUE constraint')?409:500);
     if(status>=500)console.error('cloudskill-hub error',e);
-    return json({error:status>=500?'Internal server error':e.message},status);
+    const response=json({error:status>=500?'Internal server error':e.message},status);
+    if(e.retryAfter)response.headers.set('Retry-After',String(e.retryAfter));
+    return response;
   }
 }
-export default {fetch:handler,async scheduled(event,env,ctx){ctx.waitUntil(cleanupUploads(env));}};
+export default {fetch:handler,async scheduled(event,env,ctx){ctx.waitUntil(Promise.all([cleanupUploads(env),cleanupAuth(env)]));}};

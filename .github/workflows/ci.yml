@@ -9,13 +9,14 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
+        node: [22, 24]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: ${{ matrix.node }}
       - name: Syntax, security and integration tests
         run: npm run check
   worker-runtime:
@@ -26,7 +27,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm install
+      - run: npm ci --no-audit --no-fund
       - name: Native local workerd + D1 + R2 smoke test
         run: node scripts/worker-smoke.mjs
         env:

@@ -9,9 +9,9 @@ const payload=(name='some-skill',v=1,visibility='private')=>({files:skill(name,{
 test('private registry, scoped tokens, public well-known routes and version rollback',async()=>{
   const {env,close}=fixture();try{
     const pre=await api(env,'/.well-known/skills/index.json');assert.equal(pre.status,200);assert.deepEqual(pre.data.skills,[]);
-    const bad=await api(env,'/api/bootstrap','POST',{secret:'incorrect'});assert.equal(bad.status,403);
+    const bad=await api(env,'/api/bootstrap','POST',{secret:'incorrect'});assert.equal(bad.status,410);
     const admin=await setup(env);
-    assert.equal((await api(env,'/api/bootstrap','POST',{secret:env.BOOTSTRAP_SECRET})).status,409);
+    assert.equal((await api(env,'/api/bootstrap','POST',{secret:env.BOOTSTRAP_SECRET})).status,410);
     const tokenHeader={Authorization:'Bearer '+admin};
     assert.equal((await api(env,'/api/projects','POST',{slug:'devops',title:'DevOps'},admin)).status,201);
     assert.equal((await api(env,'/api/projects','POST',{slug:'coding',title:'Code'},admin)).status,201);

@@ -12,7 +12,7 @@ Base64 JSON 会增加传输体积和解析内存，因此只在单独的小包�
 
 ### 本版本：经 Worker 流式写入私有 R2
 
-浏览器和 CLI 读取服务器能力，预检查目录或 ZIP，生成规范化 ZIP 与文件清单；用现有 Bearer Token 创建上传会话，再将 ZIP 二进制流发送到 Worker。Worker 核对实际数据，流式写入 R2 binding，D1 记录会话和发布状态。
+浏览器和 CLI 读取服务器能力，预检查目录或 ZIP，生成规范化 ZIP 与文件清单；用网页 Cookie+CSRF 或客户端发布 Token 创建上传会话，再将 ZIP 二进制流发送到 Worker。Worker 核对实际数据，流式写入 R2 binding，D1 记录会话和发布状态。
 
 这不是“浏览器直连 R2 的预签名上传”。采用现有 R2 binding 无需额外 S3 Access Key、桶级 CORS 或客户端可用的 R2 密钥。鉴权和同源访问也保持一致。代价是上传会消耗 Worker 请求和校验 CPU，依然需要在真实 Cloudflare 套餐压测；不能承诺免费套餐一定承受满额大包。
 
@@ -74,7 +74,7 @@ created → uploading → ready → committed
  cancelled / expired → deleting → 清理
 ```
 
-会话绑定“创建它的具体管理员令牌”，即使另一个管理员也不能直接接管这个会话。项目级只读客户端令牌不能发起、上传或提交发布。每次新请求都会重新鉴权；撤销令牌后不能继续提交新请求，但正在处理中的单个请求不是实时远程中断。
+会话绑定创建它的发布身份：API Token ID 或网页管理员的内部授权主体。别的 Token 不能接管；同一网页管理员重新登录可续接。publisher 只能发布授权项目的私有技能，client 不能发起、上传或提交发布。每次新请求都会重新鉴权；撤销令牌后不能继续提交新请求，但正在处理中的单个请求不是实时远程中断。
 
 创建时记录目标 project/skill、manifest、可见性和 baseVersion。上传结束只代表 R2 收到了正确内容，不代表已经发布。finalize 使用 D1 batch 事务及版本比较提交：只有当前版本仍等于 baseVersion 且会话已 ready 才能建立新版本。并发发布或公开名称冲突返回 409，不覆盖刚发布的内容。
 
@@ -82,7 +82,7 @@ created → uploading → ready → committed
 
 ## 中断、恢复、配额与清理
 
-- 默认会话有效期 1 小时；每个管理员令牌最多 3 个活跃会话、每小时 20 次创建，这些值目前为服务端常量。
+- 默认会话有效期 1 小时；每个发布身份最多 3 个活跃会话、每小时 20 次创建，这些值目前为服务端常量。
 - 客户端二进制上传超时 5 分钟，支持取消。取消非 committed 会话会尝试删除其对象，失败或遗留内容由后续清理补偿。
 - 已 ready 的完整包可复用会话继续 finalize；CLI 可用 `--resume <id>`，网页会在当前浏览器会话中保留不含令牌的上传会话 ID。
 - `--resume` 会核对本地规范 ZIP 摘要、目标与会话一致。**不能续传 ZIP 的一部分字节**。未完整上传时需要重新传整个包；工作进程异常中断后，可能需取消旧会话或等待过期后重建。
@@ -132,3 +132,5 @@ JSON 映射摘要和 ZIP 摘要语义不同，必须按 format 处理。第三�
 - Workers FixedLengthStream: https://developers.cloudflare.com/workers/runtime-apis/streams/transformstream/
 
 平台限制可能变化；本工程的策略值仍由当前代码及部署环境决定。
+
+当前账号、会话、CSRF、Token 到期和发布角色见 [AUTH.md](AUTH.md)。上传文件大小与格式协议在认证更新中保持不变。

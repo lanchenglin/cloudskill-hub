@@ -71,7 +71,7 @@ test('stream rejects corruption, wrong size, metadata mismatch, truncation and p
 test('session ownership, revocation, quota, expiration and garbage collection preserve published versions',async()=>{
   const f=fixture();try{
     const t=await setup(f.env);await project(f.env,t);
-    const other=(await api(f.env,'/api/tokens','POST',{role:'admin',label:'other',projects:[]},t)).data.token;
+    const other=(await api(f.env,'/api/tokens','POST',{role:'publisher',label:'other',projects:['devops']},t)).data.token;
     const client=(await api(f.env,'/api/tokens','POST',{role:'client',label:'device',projects:['devops']},t)).data.token;
     const pkg=await pack(source());assert.equal((await begin(f.env,client,pkg)).status,403);
     const b=await begin(f.env,t,pkg),id=b.data.id;

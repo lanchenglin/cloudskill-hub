@@ -12,7 +12,7 @@
 
 ## 不可破坏的边界
 
-- 不输出、不提交真实 Cloudflare Token、BOOTSTRAP_SECRET、Hub 管理员/客户端令牌或含凭据的 Skills；部署凭据保存在用户账号的仓库外私有目录。
+- 不输出、不提交真实 Cloudflare Token、BOOTSTRAP_SECRET、网页账号密码及 Hub 发布/只读令牌或含凭据的 Skills；部署凭据保存在用户账号的仓库外私有目录。
 - GitHub 保存程序源码；cloudskill publish 写入私人 Hub。两者不得混淆。
 - 保留 DB / BUCKET / ASSETS 绑定、nodejs_compat、全部数据库迁移、上传校验和私有权限；不要为了部署方便重构业务。
 - 不擅自启用 GitHub 自动部署、不上传用户真实技能、不改现有 Hermes / Claude / Codex 配置或模型。
@@ -23,3 +23,5 @@
 [README.md](README.md) · [人工首次部署](docs/SETUP.md) · [日常使用](docs/USAGE.md) · [API](docs/API.md) · [测试范围](docs/TEST_RESULTS.md)
 
 运行测试前注意：Hermes 进程可能带有 HERMES_HOME 等环境变量，必须按照 AI_DEPLOY.md 隔离测试子进程，避免写入用户真实技能目录。
+
+当前认证：网页账号密码，A 为 publisher，B 为 client。首次初始化使用 scripts/initialize-hub.mjs，密码恢复使用有明确目标的 scripts/reset-password.mjs；不是旧的 Token-only bootstrap。详见 docs/AUTH.md。
