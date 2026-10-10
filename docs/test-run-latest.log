@@ -1,15 +1,7 @@
-CloudSkill Hub 0.4.2
-Index of actual local verification, not a raw execution log.
-Node 24.18.1: npm run check, 110 passed, 0 failed.
-Native local workerd/D1/R2: 0001-0006 migrations, shared/all permissions, anonymous binary install, private 7 MiB upload, recovery passed.
-Chromium: two manual Token choices, permanent/finite and revoke, public browse/download, first password change, ZIP and mobile layout passed.
-Actual CLI: public connect/install/update without credentials, skipping prior private installs passed.
-Production deployment: NOT performed. CI: check this exact commit.
-
-Password policy: 6–20 Unicode code points. Four new boundary/HTTP/recovery/legacy-login regression tests passed.
-Browser: setup, forced change and ordinary change boundary + matching checks passed.
-Native local Worker: 6-character activation/recovery and 20-character password change passed.
-
-Release gating: 11 isolated Git regression tests passed. GitHub runtime promotion and Cloudflare deployment are separate checks; consult current CI for the former, production was not performed.
-
-Recoverable tokens: 7 API regressions plus 4 crypto/key-file/migration tests passed. Native Worker AES-GCM and browser repeat reveal/copy/hide/re-login/stale-response checks passed. Production encryption key not configured in this task.
+CloudSkill Hub 0.4.3
+Index of actual isolated local verification, not a raw execution log.
+Node 24.18.1: npm run check, 118 passed, 0 failed.
+Chromium: separate settings pages, modal issuance, filters, 320-1440px layout, sticky text logout, existing token/password/upload flows passed.
+Logout: request failure, confirmed logout/status-refresh failure, repeat click, upload confirmation, late catalog/reveal response checks passed.
+Native local workerd/D1/R2: 0001-0006 migrations and original authentication, encrypted token, upload and installation smoke passed.
+CI/main-to-worker: check exact commit. Production Cloudflare: NOT performed.

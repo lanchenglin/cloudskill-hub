@@ -10,7 +10,7 @@ const one=(db,sql,...a)=>db.prepare(sql).bind(...a).first();
 const run=(db,sql,...a)=>db.prepare(sql).bind(...a).run();
 const keys=id=>({archive:`packages/${id}.zip`,manifest:`package-manifests/${id}.json`});
 
-export function capabilities(env){return {version:'0.4.2',uploadProtocol:2,limits:resolveLimits(env),
+export function capabilities(env){return {version:'0.4.3',uploadProtocol:2,limits:resolveLimits(env),
   legacy:{maxFiles:200,maxBundleBytes:6*1024*1024,maxFileBytes:4*1024*1024,maxJsonBytes:9*1024*1024},
   uploads:{sessionTtlSeconds:TTL/1000,maxActive:MAX_ACTIVE,maxStartsPerHour:MAX_HOURLY,resume:'completed-archive',transport:'worker-stream-to-private-r2',zipCompression:['store','deflate']}};}
 export async function startUpload(env,u,project,name,body){

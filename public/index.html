@@ -7,6 +7,7 @@
   <meta name="description" content="CloudSkill Hub — 私有 Agent Skills 管理平台" />
   <title>CloudSkill Hub · 私人技能中心</title>
   <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/settings.css" />
   <script src="/app.js" type="module"></script>
 </head>
 <body>
@@ -14,18 +15,30 @@
   <aside class="sidebar">
     <div class="brand"><div class="brand-icon">✳</div><div><strong>CloudSkill<span>Hub</span></strong><small>PERSONAL AGENT SKILLS</small></div></div>
     <div class="nav-caption">工作空间</div>
-    <nav>
+    <nav aria-label="主导航">
       <button class="nav-item active" data-view="library"><span>◈</span> 技能仓库</button>
       <button class="nav-item" data-view="publish"><span>⇧</span> 上传技能</button>
+      <button class="nav-item" data-view="projects"><span aria-hidden="true">▦</span> 项目分类</button>
       <button class="nav-item" data-view="devices"><span>▣</span> 客户端设备</button>
       <button class="nav-item" data-view="security"><span>◇</span> 访问权限</button>
+      <button class="nav-item" data-view="account"><span aria-hidden="true">◎</span> 账号设置</button>
     </nav>
     <div class="side-spacer"></div>
     <div class="aside-info"><span class="live-dot"></span><div><b>Cloudflare 原生</b><small>Workers · D1 · R2</small></div></div>
-    <div class="user-area"><div class="avatar">C</div><div><b id="actor">尚未授权</b><small id="role">私人部署</small></div><button id="logout" title="退出本页">↗</button></div>
   </aside>
   <main class="main-area">
-    <header class="topbar"><div class="breadcrumb">Workspace <span>/</span> <strong id="crumb">技能仓库</strong></div><div class="topbar-actions"><span class="pill">● PRIVATE BY DEFAULT</span><a href="https://agentskills.io" target="_blank" rel="noopener noreferrer">Agent Skills ↗</a></div></header>
+    <header class="topbar">
+      <div class="breadcrumb"><span class="workspace-name">CloudSkill</span><span aria-hidden="true">/</span><strong id="crumb">技能仓库</strong></div>
+      <div class="topbar-actions">
+        <a class="shared-link" href="/shared.html" target="_blank" rel="noopener noreferrer">共享技能 ↗</a>
+        <div id="sessionControls" class="session-controls" hidden>
+          <button id="accountShortcut" class="account-shortcut" type="button" data-go="account" aria-label="打开账号设置">
+            <span class="avatar" aria-hidden="true">C</span><span class="account-identity"><b id="actor">未登录</b><small id="role">网页管理员</small></span>
+          </button>
+          <button id="logout" class="logout-button" type="button" data-logout hidden>退出登录</button>
+        </div>
+      </div>
+    </header>
     <div id="toast" role="status" aria-live="polite"></div>
     <section id="auth-card" class="auth-panel">
       <div class="eyebrow">SELF-HOSTED / ZERO EXTERNAL DATABASES</div>
@@ -61,14 +74,14 @@
         <label for="forceNewPasswordAgain">确认新密码</label><input id="forceNewPasswordAgain" type="password" autocomplete="new-password" required maxlength="40" minlength="6" />
         <p id="forcePasswordError" role="alert"></p>
         <button id="forcePasswordSubmit" type="submit" class="primary">修改密码并重新登录</button>
-        <button id="forceLogout" type="button" class="secondary">退出登录</button>
+        <button id="forceLogout" type="button" class="secondary" data-logout>退出登录</button>
       </form>
     </section>
     <div id="dashboard" hidden>
       <section id="view-library" class="view">
         <div class="hero"><div><div class="eyebrow">YOUR PRIVATE AGENT CAPABILITY LAYER</div><h1>技能仓库<span class="mark">.</span></h1><p>统一保存、检索与更新 AI 编程工具的 Skills。</p></div><div class="hero-icon">✳</div></div>
-        <div class="stats"><div><small>已收录技能</small><b id="numSkills">0</b><span>个可复用能力</span></div><div><small>项目空间</small><b id="numProjects">0</b><span>独立分类与权限</span></div><div><small>设备接入</small><b id="numDevices">—</b><span>多端安装 / 更新</span></div></div>
-        <div class="section-title"><div><h2>我的技能</h2><p>通过项目筛选和关键词快速找到所需 Skills</p></div><button class="primary" data-go="publish">＋ 上传 Skill</button></div>
+        <div class="stats"><div><small>已收录技能</small><b id="numSkills">0</b><span>个可复用能力</span></div><div><small>项目空间</small><b id="numProjects">0</b><span>整理技能的分类</span></div><div><small>设备接入</small><b id="numDevices">—</b><span>多端安装 / 更新</span></div></div>
+        <div class="section-title"><div><h2>我的技能</h2><p>通过项目筛选和关键词快速找到所需 Skills</p></div><div class="section-actions"><button class="secondary" data-go="projects">管理分类</button><button class="primary" data-go="publish">＋ 上传 Skill</button></div></div>
         <div class="toolbar"><input id="search" placeholder="搜索名称 / 描述 / 项目 ..." aria-label="搜索技能" /><select id="projectFilter" aria-label="筛选项目"><option value="">全部项目</option></select></div>
         <div id="skillsGrid" class="skill-grid"></div>
       </section>
@@ -99,16 +112,61 @@ Step-by-step instructions...</pre><p id="policyHelp"></p><p>同一份 <code>SKIL
 cloudskill subscribe coding --agents claude,codex,hermes
 cloudskill sync
 cloudskill check</pre></div></section>
-      <section id="view-security" class="view" hidden><div class="page-title"><div class="eyebrow">SECURITY / LEAST PRIVILEGE</div><h1>访问权限</h1><p>共享技能无需 Token 即可拉取。需要修改时，由你在此签发共享修改或全部修改 Token，支持永久有效和手动撤销。</p></div>
-        <div class="two-col"><form id="tokenForm" class="panel"><h3>签发访问令牌</h3><label>令牌备注</label><input id="tokenLabel" required maxlength="80" placeholder="例如 WSL-Dev / Windows-Codex" /><label>角色</label><select id="tokenRole"><option value="shared_writer">修改共享技能（读取、推送、更新共享区）</option><option value="all_writer">修改全部技能（共享与私有）</option></select><label for="tokenDays">有效期</label><select id="tokenDays"><option value="30">30 天</option><option value="90" selected>90 天</option><option value="365">365 天</option><option value="never">永久有效（直到手动撤销）</option></select><p class="muted">永久令牌不设到期时间；不再使用时可在下方手动撤销。此设置不改变网页登录会话的有效期。</p><p class="muted">不绑定 A/B/C 设备，也不用逐个勾选项目。全部修改 Token 能读取私有技能，请只交给可信工具；两种 Token 都不能管理账号或其他 Token。</p><p id="tokenStorageWarning" role="alert" hidden>请先按部署说明配置 TOKEN_ENCRYPTION_KEY，再签发可重复查看的令牌。</p><button type="submit" class="primary wide">生成令牌 →</button><div id="issuedToken" class="issued" hidden><b>令牌已生成，可复制；以后也可在下方列表再次查看：</b><code id="issuedValue"></code><button type="button" class="secondary" id="copyIssued">复制</button><button type="button" class="secondary" id="hideIssued">隐藏</button></div></form>
-        <form id="projectForm" class="panel"><h3>新建项目分类</h3><label>项目英文 ID（不可更改）</label><input id="newProjectSlug" pattern="[a-z0-9]+(-[a-z0-9]+)*" placeholder="devops" required maxlength="64"/><label>展示名称</label><input id="newProjectTitle" placeholder="运维自动化" required maxlength="100"/><button class="secondary wide" type="submit">＋ 创建项目</button><p>建议创建 devops、coding、video、automation 等项目，项目仅用于分类；Token 按共享或全部技能划分权限。</p></form></div>
-        <div class="panel"><h3>令牌列表</h3><div id="tokensList" class="rows"></div><button id="revokeAllTokens" class="secondary" type="button">撤销全部客户端 / API 令牌</button><p class="muted">此操作会中断所有客户端后续访问，但不会退出当前网页。修改密码不会自动执行此操作。</p></div>
-        <form id="passwordForm" class="panel"><h3>修改管理员密码</h3><p>修改后所有浏览器会话失效；客户端 Token 保持有效。怀疑凭据泄露时，另行撤销 Token。</p><label for="currentPassword">当前密码</label><input id="currentPassword" type="password" autocomplete="current-password" required maxlength="256" /><label for="newPassword">新密码（6–20 字符）</label><input id="newPassword" type="password" autocomplete="new-password" minlength="6" maxlength="40" required /><label for="newPasswordAgain">确认新密码</label><input id="newPasswordAgain" type="password" autocomplete="new-password" required maxlength="40" minlength="6" /><button class="primary" type="submit">修改密码并重新登录</button></form>
+      <section id="view-security" class="view settings-view" hidden aria-labelledby="securityTitle">
+        <div class="page-title settings-title"><div class="eyebrow">ACCESS / API TOKENS</div><h1 id="securityTitle">访问权限<span class="mark">.</span></h1><p>令牌由你签发，供 Hermes、Claude 等工具连接使用。共享技能无需令牌即可拉取。</p></div>
+        <div class="permission-overview" aria-label="权限说明">
+          <div><span class="permission-icon" aria-hidden="true">↙</span><div><b>无需令牌</b><p>任何人都能拉取共享技能</p></div></div>
+          <div><span class="permission-icon" aria-hidden="true">◇</span><div><b>修改共享</b><p>读写共享技能，不能访问私有内容</p></div></div>
+          <div><span class="permission-icon" aria-hidden="true">◈</span><div><b>修改全部</b><p>读写共享与私有技能，仅交给可信工具</p></div></div>
+        </div>
+        <div id="tokenStorageWarning" class="notice notice-warning" role="alert" hidden>令牌加密密钥尚未配置，请按部署说明设置 TOKEN_ENCRYPTION_KEY 后再创建令牌。</div>
+        <div class="panel token-panel">
+          <div class="panel-heading"><div><h2>访问令牌 <span id="tokenTotal" class="count-badge">0</span></h2><p id="tokenSummary" class="muted" aria-live="polite">正在读取令牌…</p></div><div class="section-actions"><button id="refreshTokens" class="secondary" type="button">刷新</button><button id="openTokenCreate" class="primary" type="button">＋ 新建令牌</button></div></div>
+          <div class="token-toolbar" role="search" aria-label="筛选访问令牌">
+            <input id="tokenSearch" type="search" placeholder="搜索令牌备注…" aria-label="搜索令牌备注" />
+            <select id="tokenRoleFilter" aria-label="筛选令牌权限"><option value="">全部权限</option><option value="shared_writer">修改共享技能</option><option value="all_writer">修改全部技能</option></select>
+            <select id="tokenStatusFilter" aria-label="筛选令牌状态"><option value="">全部状态</option><option value="active">有效</option><option value="expired">已过期</option><option value="revoked">已撤销</option></select>
+          </div>
+          <p id="tokenListError" class="notice notice-warning" role="alert" hidden></p>
+          <div class="token-table-head" aria-hidden="true"><span>令牌备注 / 状态</span><span>访问权限</span><span>有效期</span><span>最近使用</span><span>操作</span></div>
+          <div id="tokensList" class="rows" aria-label="令牌列表" aria-busy="false"></div>
+          <div class="token-list-footer"><span id="tokenFilteredCount" aria-live="polite"></span><span>明文默认隐藏，查看后可复制，再次登录仍可查看。</span></div>
+        </div>
+        <details id="tokenDangerZone" class="danger-zone">
+          <summary>高风险操作 <span>撤销全部访问令牌</span></summary>
+          <div class="danger-content"><div><h3>让所有客户端令牌立即失效</h3><p>所有持有令牌的工具都需要重新配置。不会退出当前网页，也不会删除或收回已下载的技能。</p></div><button id="revokeAllTokens" class="danger-button" type="button">撤销全部令牌</button></div>
+        </details>
+      </section>
+      <section id="view-projects" class="view settings-view" hidden aria-labelledby="projectsTitle">
+        <div class="page-title settings-title"><div class="eyebrow">ORGANIZE / PROJECTS</div><h1 id="projectsTitle">项目分类<span class="mark">.</span></h1><p>把技能按用途整理。分类不会改变令牌权限或技能的共享状态。</p></div>
+        <div class="projects-layout">
+          <div class="panel"><div class="panel-heading"><div><h2>已有分类 <span id="projectCount" class="count-badge">0</span></h2><p>英文 ID 用于客户端安装与发布命令。</p></div></div><div id="projectList" class="rows" aria-label="项目分类列表"></div></div>
+          <form id="projectForm" class="panel compact-form"><h2>新建分类</h2><div class="field"><label for="newProjectSlug">英文 ID</label><input id="newProjectSlug" pattern="[a-z0-9]+(-[a-z0-9]+)*" placeholder="例如 devops" required maxlength="64" aria-describedby="projectSlugHint"/><p id="projectSlugHint" class="field-hint">小写字母、数字或连字符；创建后不可修改。</p></div><div class="field"><label for="newProjectTitle">展示名称</label><input id="newProjectTitle" placeholder="例如 运维自动化" required maxlength="100"/></div><button class="primary wide" type="submit">＋ 创建分类</button><p class="field-hint">例如 coding、video、automation。这里只创建分类，不会创建或公开技能。</p></form>
+        </div>
+      </section>
+      <section id="view-account" class="view settings-view" hidden aria-labelledby="accountTitle">
+        <div class="page-title settings-title"><div class="eyebrow">ACCOUNT / SIGN-IN</div><h1 id="accountTitle">账号设置<span class="mark">.</span></h1><p>管理网页登录密码和当前会话。工具使用的访问令牌在“访问权限”中管理。</p></div>
+        <div class="account-layout">
+          <form id="passwordForm" class="panel compact-form"><div class="panel-heading"><div><h2>修改登录密码</h2><p>修改后所有浏览器需重新登录，客户端令牌不受影响。</p></div></div><div class="field"><label for="currentPassword">当前密码</label><input id="currentPassword" type="password" autocomplete="current-password" required maxlength="256" /></div><div class="field"><label for="newPassword">新密码</label><input id="newPassword" type="password" autocomplete="new-password" minlength="6" maxlength="40" required aria-describedby="newPasswordHint"/><p id="newPasswordHint" class="field-hint">6～20 个字符，支持中文、字母、数字和符号。</p></div><div class="field"><label for="newPasswordAgain">确认新密码</label><input id="newPasswordAgain" type="password" autocomplete="new-password" required maxlength="40" minlength="6" /></div><button class="primary wide" type="submit">修改密码并重新登录</button></form>
+          <div class="panel session-panel"><div class="panel-heading"><div><h2>当前登录</h2><p>只管理当前浏览器的登录状态。</p></div></div><div class="account-card"><span class="avatar" aria-hidden="true">C</span><div><b id="accountName"></b><span class="muted">网页管理员</span></div><span class="status-badge active">已登录</span></div><p>退出不会撤销客户端令牌，不会影响 Hermes 等工具，也不会删除技能。</p><button id="accountLogout" class="secondary wide" type="button" data-logout>退出当前登录</button><button class="text-button wide" type="button" data-go="security">管理访问令牌 →</button></div>
+        </div>
       </section>
     </div>
   </main>
 </div>
 <dialog id="detailDialog"><form method="dialog"><button class="dialog-close" aria-label="关闭">×</button></form><div id="detailBody"></div></dialog>
+<dialog id="tokenCreateDialog" aria-labelledby="tokenCreateTitle">
+  <div class="dialog-heading"><div><div class="eyebrow">NEW API TOKEN</div><h2 id="tokenCreateTitle">新建访问令牌</h2></div><button id="closeTokenCreate" class="dialog-close" type="button" aria-label="关闭新建令牌">×</button></div>
+  <form id="tokenForm" class="compact-form">
+    <div class="field"><label for="tokenLabel">令牌备注</label><input id="tokenLabel" required maxlength="80" placeholder="例如：日常 Hermes / 本地 Claude" autocomplete="off" /></div>
+    <div class="field"><label for="tokenRole">访问权限</label><select id="tokenRole" aria-describedby="tokenRoleHint"><option value="shared_writer">修改共享技能</option><option value="all_writer">修改全部技能</option></select><p id="tokenRoleHint" class="field-hint"></p></div>
+    <div class="field"><label for="tokenDays">有效期</label><select id="tokenDays" aria-describedby="tokenDaysHint"><option value="30">30 天</option><option value="90" selected>90 天</option><option value="365">365 天</option><option value="never">永久有效（直到手动撤销）</option></select><p id="tokenDaysHint" class="field-hint"></p></div>
+    <p class="field-hint">不绑定设备或项目。两种令牌都不能管理网页账号及其他令牌。</p>
+    <p id="tokenCreateError" class="notice notice-warning" role="alert" hidden></p>
+    <button type="submit" class="primary wide">生成令牌</button>
+    <div id="issuedToken" class="issued" hidden><b>令牌已生成</b><p>现在可以复制，以后也可以从列表再次查看。</p><code id="issuedValue" aria-label="新生成的访问令牌"></code><div class="section-actions"><button type="button" class="secondary" id="copyIssued">复制令牌</button><button type="button" class="secondary" id="hideIssued">隐藏</button></div></div>
+  </form>
+</dialog>
 <dialog id="tokenRevealDialog" aria-labelledby="tokenRevealLabel">
   <h3 id="tokenRevealLabel"></h3><p id="tokenRevealStatus"></p>
   <code id="tokenRevealValue" class="token-secret" aria-label="访问令牌"></code>

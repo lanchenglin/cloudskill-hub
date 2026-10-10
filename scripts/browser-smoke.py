@@ -4,6 +4,8 @@ Requires playwright + Chromium (or CHROMIUM_PATH). Uses only a disposable local 
 from pathlib import Path
 import json, os, shutil, subprocess, tempfile, time, zipfile
 from playwright.sync_api import sync_playwright
+from settings_checks import check_settings_layout
+from logout_checks import check_upload_logout
 
 def check_password_bounds(page, first, again, form):
     # Same browser rule as the backend; include astral characters and preserve pasted text.
@@ -82,10 +84,12 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             assert page.evaluate('document.cookie').find('csh_dev_session') == -1
             assert page.evaluate("sessionStorage.getItem('csh-token')") is None
             page.reload();page.locator('#dashboard').wait_for(state='visible')
-            page.locator('[data-view="security"]').click()
+            page.locator('[data-view="projects"]').click()
             page.locator('#newProjectSlug').fill('devops');page.locator('#newProjectTitle').fill('DevOps')
             page.locator('#projectForm button[type="submit"]').click()
             page.locator('#publishProject option[value="devops"]').wait_for(state='attached')
+            page.locator('[data-view="security"]').click()
+            page.locator('#openTokenCreate').click()
             assert page.locator('#tokenScope').count() == 0
             assert page.locator('#tokenRole option').evaluate_all('(els) => els.map(e => e.value)') == ['shared_writer','all_writer']
             page.locator('#tokenLabel').fill('Shared-editing');page.locator('#tokenRole').select_option('shared_writer')
@@ -99,6 +103,8 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             assert permanent['role'] == 'shared_writer' and permanent['projects'] == []
             assert 'projects' not in issued_response.value.request.post_data_json
             page.locator('#tokensList .row-card').filter(has_text='Shared-editing').filter(has_text='永久有效').wait_for()
+            page.locator('#closeTokenCreate').click()
+            page.locator('#openTokenCreate').click()
             page.locator('#tokenLabel').fill('All-editing');page.locator('#tokenRole').select_option('all_writer')
             page.locator('#tokenDays').select_option('30')
             with page.expect_response(lambda response: response.url.endswith('/api/tokens') and response.request.method == 'POST') as finite_response:
@@ -108,6 +114,7 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             assert finite_response.value.request.post_data_json['expiresInDays'] == 30
             page.locator('#issuedValue').filter(has_text='csh_').wait_for()
             page.locator('#tokensList').filter(has_text='修改共享技能').wait_for()
+            page.locator('#closeTokenCreate').click()
             page.reload();page.locator('#dashboard').wait_for(state='visible')
             page.locator('[data-view="security"]').click()
             permanent_row=page.locator('#tokensList .row-card').filter(has_text='Shared-editing')
@@ -166,6 +173,7 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             page.locator('#tokensList .row-card').filter(has_text='Shared-editing').filter(has_text='已撤销').wait_for()
             assert page.request.get(creds['url']+'/api/me',headers={'Authorization':'Bearer '+permanent['token']}).status == 401
             assert page.request.get(creds['url']+'/api/me',headers={'Authorization':'Bearer '+finite['token']}).status == 200
+            check_settings_layout(page,creds)
             page.locator('#dashboard').wait_for(state='visible')
             page.locator('[data-view="publish"]').click()
             page.locator('#uploadLimits').filter(has_text='50 MiB').wait_for()
@@ -221,7 +229,8 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             if os.environ.get('BROWSER_SCREENSHOT'):
                 page.screenshot(path=os.environ['BROWSER_SCREENSHOT'],full_page=True)
             page.set_viewport_size({'width':1440,'height':1000})
-            page.locator('[data-view="security"]').click()
+            check_upload_logout(page,creds)
+            page.locator('[data-view="account"]').click()
             page.locator('#currentPassword').fill(creds['password'])
             check_password_bounds(page,'#newPassword','#newPasswordAgain','#passwordForm')
             changed='🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑'
@@ -234,7 +243,7 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             assert page.locator('#dashboard').is_hidden()
             assert not errors,errors
             browser.close()
-        print('PASS: Chromium token reveal/copy/hide after refresh and re-login, no secret storage/list leaks, stale reveal after logout discarded; 6–20 password boundaries/Unicode and confirmation for setup/first change/normal change; default password, mandatory first change without bootstrap proof (refresh/re-login/Escape/API rejection), HttpOnly session reload, shared/all writer token issuance, anonymous shared downloads and revocation, ZIP upload/edit/download, password change/logout, unsafe ZIP rejection and mobile layout')
+        print('PASS: settings pages separation, metadata filters, 320–1440px layout, sticky mobile logout, failed/logout/reload/late-response guards; Chromium token reveal/copy/hide after refresh and re-login, no secret storage/list leaks, stale reveal after logout discarded; 6–20 password boundaries/Unicode and confirmation for setup/first change/normal change; default password, mandatory first change without bootstrap proof (refresh/re-login/Escape/API rejection), HttpOnly session reload, shared/all writer token issuance, anonymous shared downloads and revocation, ZIP upload/edit/download, password change/logout, unsafe ZIP rejection and mobile layout')
     finally:
         server.terminate()
         try: server.wait(timeout=5)

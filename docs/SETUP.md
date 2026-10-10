@@ -73,14 +73,14 @@ node scripts/initialize-hub.mjs --url https://YOUR-HUB --credentials-dir /YOUR/P
 
 共享内容无需 Token；任意客户端可用 `cloudskill connect <URL>` 或打开 `/shared.html` 拉取。
 
-需要修改时，网页登录“访问权限”，自行选择备注、类型和有效期：
+需要修改时，网页登录“访问权限”，点击“新建令牌”，自行选择备注、类型和有效期：
 
 | 类型 | 能力 |
 |---|---|
 | 修改共享技能 shared_writer | 跨分类拉取、发布、更新共享内容；无法读取私有内容 |
 | 修改全部技能 all_writer | 跨分类拉取、推送、更新共享与私有内容；无网站管理权限 |
 
-无需勾选项目或指定 A/B/C。项目分类先在网页创建；Token 默认为90天，可选30/365天或永久。永久也支持手动撤销。API 可选1–365天或显式 null。
+无需勾选项目或指定 A/B/C。项目分类先在网页“项目分类”中创建；Token 默认为90天，可选30/365天或永久。永久也支持手动撤销。API 可选1–365天或显式 null。
 
 初始化脚本不签发任何 Token，也没有 A/B 凭据文件。--token-days 不再适用。已存在的旧 Token 不变更权限、不自动延期。
 
@@ -109,7 +109,7 @@ cloudskill publish personal ./my-private-skill --private
 
 ## 7. 改密码与恢复
 
-网页登录后在“访问权限”修改密码，需要输入当前密码。成功后全部网页会话失效，但客户端 Token 不变；怀疑泄露时另外撤销相关 Token。
+网页登录后在“账号设置”修改密码，需要输入当前密码。成功后全部网页会话失效，但客户端 Token 不变；怀疑泄露时另外撤销相关 Token。
 
 忘记密码由有 Cloudflare/D1 管理权限的部署终端执行：
 

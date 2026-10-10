@@ -16,3 +16,6 @@ owner.json
 
 # Long-lived token display encryption key: private deployment directory only.
 token-encryption.json
+
+# Python browser-check helpers
+__pycache__/

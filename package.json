@@ -1,6 +1,6 @@
 {
   "name": "cloudskill-hub",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "private": true,
   "type": "module",
   "description": "Cloudflare-native private Agent Skills hub for Claude Code, Codex and Hermes Agent",

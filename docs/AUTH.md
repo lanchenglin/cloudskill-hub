@@ -118,3 +118,7 @@ npm run reset-password -- --remote --config /PRIVATE/wrangler.json --password-fi
 已过期/撤销的新令牌可以查看原值用于核对，但不会因此恢复权限。历史 hash-only 令牌返回409 token_value_unavailable；新签发可查看，旧令牌保持不变。缺少有效密钥时禁止签发新令牌（503 token_key_unavailable），不退化为明文或仅显示一次。错误密钥/篡改密文返回503 token_decryption_failed，客户端摘要认证不依赖此密钥，因此仍可正常验证有效旧 Token。
 
 详见 [TOKEN_VIEW.md](TOKEN_VIEW.md)。本功能只解决 Hub 访问令牌再次查看，不加密 Skill 文件里另外保存的外部服务凭据，也不是端到端或零知识凭据保险库。
+
+## 网页入口
+
+令牌在“访问权限”中列表管理和弹窗签发，项目分类与账号设置分别独立。修改密码移至“账号设置”，校验规则不变。顶部“退出登录”仅调用原退出接口撤销当前 Cookie 会话，手机端也可见；网络失败时不宣称已经退出。退出前立即隐藏页面令牌值，旧请求晚到时不重新填充私人数据。

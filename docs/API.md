@@ -1,4 +1,4 @@
-# CloudSkill Hub API — 当前 0.4.2
+# CloudSkill Hub API — 当前 0.4.3
 
 ## 权限模型
 
@@ -128,7 +128,7 @@ manifest包 `format:2` 的digest表示archiveDigest；历史JSON `format:1` 表�
 
 401：无效/撤销/到期身份或匿名写；403：越权、CSRF、待改密、需重新验证；404：不存在或不可读；409：版本/状态冲突；413：大小超限；426：客户端包格式能力不足；429：现有限速；500/503：配置/后端错误。安全边界见 [AUTH](AUTH.md)，测试范围见 [TEST_RESULTS](TEST_RESULTS.md)。
 
-## 令牌再次查看（0.4.2）
+## 令牌再次查看（0.4.3）
 
 GET /api/tokens 的 tokens 数组增加 recoverable:boolean，外层增加 tokenStorage:{configured:boolean}。不返回 token、token_hash 或 token_ciphertext；configured 仅表示密钥格式符合要求，不代表每条历史密文都能用当前密钥解开。
 
