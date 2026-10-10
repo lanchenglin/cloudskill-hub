@@ -1,19 +1,19 @@
 # AI 首次部署执行手册
 
-适用于有终端/文件/网络能力的 Hermes、Claude Code、Codex。先读 AGENTS.md。**只部署当前 main 的完整应用，不安装中间版本。** 本文件不是部署成功记录，单独读取本文件也不是云端写入授权。
+适用于有终端/文件/网络能力的 Hermes、Claude Code、Codex。先读 AGENTS.md。**首次部署使用 CI 已通过的 worker 分支完整应用，不安装中间版本；开发仍使用 main。** 本文件不是部署成功记录，单独读取本文件也不是云端写入授权。
 
 用户明确要求部署且已有合法账号授权时，实际执行检查、部署、初始化和验收，不只返回建议。本轮若只是改代码/文档/审查，不操作真实 Cloudflare。
 
 ## 给部署 AI 的任务
 
 ```text
-拉取 lanchenglin/cloudskill-hub 的 main，读取 AGENTS.md 和 AI_DEPLOY.md，
+拉取 lanchenglin/cloudskill-hub 的 worker 发布分支，读取 AGENTS.md 和 AI_DEPLOY.md，
 使用我已经授权的 Cloudflare 账号首次部署一个私人 Hub。
 网页登录用账号密码；共享内容匿名可拉取，修改 Token 由我自己在网页签发。
 默认账号 admin、初始密码 lanchenglin；初始化后提示我首次登录必须改密，不替我改成随机密码或跳过门禁。
 首次改密只填写当前密码、新密码和确认新密码，不要求初始化 Secret。不要自动签发任何 Token。
 完成隔离验收，报告实际地址、账号名、凭据文件位置、资源和测试结果。
-不要改现有 Hermes 配置，不上传真实私人技能，不开 GitHub 自动部署。
+不要改现有 Hermes 配置，不上传真实私人技能，不恢复 GitHub 直接部署，Cloudflare 构建连接只监听 worker。
 缺授权、账号目标不明、同名业务资源或需付费开通时说明阻塞，不清库、不换临时账号。
 ```
 
@@ -35,7 +35,7 @@ Cloudflare 凭据应只授权目标账号的 Worker/Secrets、D1 和 R2。使用
 
 ```bash
 # 没有源码才 clone；已有目录先检查，不覆盖本地修改
-git clone https://github.com/lanchenglin/cloudskill-hub.git
+git clone --branch worker https://github.com/lanchenglin/cloudskill-hub.git
 cd cloudskill-hub
 git status --short
 git rev-parse HEAD
@@ -207,7 +207,7 @@ cloudskill update
 
 **明确说明：没有自动生成 Token，用户在网页自行选择两种修改权限及永久/定期。** 无 Token 时能拉取共享；私有内容需要全部修改 Token。不要再交付不存在的 A/B Token 文件。
 
-现有 Hermes 目录和模型配置不动；GitHub 自动部署仍关闭；不清理或改变任何旧 Token。账户和权限使用见 docs/AUTH.md。
+现有 Hermes 目录和模型配置不动；GitHub 仅测试并同步 worker，不执行直接部署；不清理或改变任何旧 Token。账户和权限使用见 docs/AUTH.md。
 
 ## 10. 忘记密码和故障
 
@@ -226,3 +226,7 @@ HTTP 401：检查会话/密码/Token 是否正确、过期或已撤销；403：�
 密码修改响应丢失时先尝试验证新凭据，不盲目恢复旧密码；初始化脚本在远端创建之前已保存初始账号；本地默认密码过期时只接受用户合法提供的新密码，不自动回退或重置。已有业务数据先备份，失败时不要删资源或重建账号“回滚”。
 
 参考：[SETUP](docs/SETUP.md) · [AUTH](docs/AUTH.md) · [USAGE](docs/USAGE.md) · [API](docs/API.md) · [测试边界](docs/TEST_RESULTS.md)。
+
+## 后续自动发布的固定分工
+
+GitHub已通过ci.yml配置main全量检查成功后快进worker，禁止为部署在worker上单独提交生产配置。Cloudflare生产分支选择worker，个人使用关闭非生产预览；必须确认worker已经存在且是通过检查的SHA。没有worker或CI失败时先报告，不改用未经测试的main部署。首次手动部署完成后可在用户授权下连接Workers Builds，详细参数见[GitHub发布流程](docs/PUBLISH_GITHUB.md)。已移除旧deploy.yml，不再配置ENABLE_CLOUDFLARE_DEPLOY，也不在GitHub加入Cloudflare密钥做第二条部署通道。只有“配置GitHub”的任务不执行上述Cloudflare步骤。

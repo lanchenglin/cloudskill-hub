@@ -6,7 +6,7 @@
 
 | 项目 | 结果 |
 |---|---|
-| Node 24.18.1 `npm run check` | **88 项通过，0 失败** |
+| Node 24.18.1 `npm run check` | **99 项通过，0 失败** |
 | 原生本地 workerd + D1 + R2 | 通过：全部0001–0005迁移、默认账号强制改密、共享/全部Token、永久/定期、撤销、7MiB私有上传/三端目录安装、共享匿名二进制安装、密码恢复 |
 | Chromium 网页流程 | 通过：默认密码/强制改密且无需Secret、刷新/重登/CSRF门禁、仅两种Token且无项目选择、永久/定期/撤销、ZIP上传/编辑/下载、匿名共享网页和ZIP下载、320/390px原管理页布局 |
 | 实际CLI子进程 | 通过：无需Token的connect/list/install/update，不读取继承的无关Token，不上报匿名设备 |
@@ -36,3 +36,9 @@ GitHub Windows/Ubuntu Node22/24、独立Chromium与workerd由 [CI](https://githu
 新密码统一 6–20 个 Unicode 码点，边界为含 6/20、不含 5/21，不 trim 或截断。新增4项回归在修改前失败、修改后通过，覆盖共享规则、HTTP 初始化/强制与普通改密、可信恢复，以及旧长密码仍可登录并改为新规则密码。正常改密/恢复仍不能选用公开初始密码。
 
 Chromium 在初始化、强制改密、普通改密三个表单中验证 5/6/20/21、中文、emoji 和确认密码不一致。真实本地 workerd 验证6字符首次改密/密码恢复、20字符普通改密，原有匿名共享下载、两种 Token、永久/定期和7 MiB上传/安装流程仍通过。没有执行生产部署，CI 以此提交结果为准。
+
+## main → worker 自动发布门禁
+
+本次只改GitHub发布流程，不改应用版本和业务实现。本地Node24完整检查99项通过，其中新增11项隔离本地Git测试：首次创建worker、准确快进、幂等重跑、main前进后旧任务跳过、分叉和回退拒绝、推送前main变化、竞争更新、网络错误、SHA错误、只允许main push上下文、CI依赖与删除重复部署入口的静态契约。全部在临时bare仓库运行，不访问生产Cloudflare或真实Skills。
+
+远端以本次main提交对应CI结果为准；promotion job成功且worker SHA匹配才能称GitHub自动同步已验收。Cloudflare Workers Builds的连接、worker分支监听和真实部署不属于本次已测试范围。

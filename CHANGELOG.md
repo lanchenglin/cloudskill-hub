@@ -10,4 +10,8 @@
 
 AI 初始化只管理账号和可选 personal 分类，不签发任何 Token、不产生预设 A/B 文件。原有旧 Token 通过迁移保留原权限，不自动扩大。默认 admin/lanchenglin、强制改密且不再输入 Secret 的流程不变。
 
-新增 0005_sharing_permissions.sql，首次使用统一运行全部迁移。当前只安装 main 完整代码；不需要安装中间版本。未部署生产 Cloudflare，没有开启自动部署，没有做性能扩展；测试结果见 TEST_RESULTS。
+新增 0005_sharing_permissions.sql，首次使用统一运行全部迁移。生产部署使用 CI 已通过的 worker 完整代码；不需要安装中间版本。未部署生产 Cloudflare，没有开启自动部署，没有做性能扩展；测试结果见 TEST_RESULTS。
+
+### 发布流程配置（应用版本保持0.4.1）
+
+新增main全量CI通过后精确快进worker，旧的GitHub直接部署workflow已移除。Cloudflare后续连接仅监听worker；GitHub不保存或调用Cloudflare部署密钥。新增隔离本地Git仓库的推广测试，覆盖重复、过期任务、分叉、竞争推送和无效上下文。该配置不改应用功能、权限、密码、数据库结构或用户Skills，不代表生产部署已完成。

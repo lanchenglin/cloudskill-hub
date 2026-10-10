@@ -1,12 +1,14 @@
 name: Test CloudSkill Hub
 on:
   push:
+    branches-ignore: [worker]
   pull_request:
 permissions:
   contents: read
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
         node: [22, 24]
@@ -47,3 +49,32 @@ jobs:
       - run: python -m playwright install --with-deps chromium
       - name: Browser ZIP upload, edit, download and mobile layout
         run: python scripts/browser-smoke.py
+
+  # Promotion is in the SAME run as its prerequisite tests. No workflow_run or PR write token.
+  promote-worker:
+    name: Promote tested main to worker
+    needs: [test, worker-runtime, browser]
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      needs.test.result == 'success' && needs.worker-runtime.result == 'success' &&
+      needs.browser.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    concurrency:
+      group: cloudskill-worker-promotion
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Fast-forward worker to this tested commit
+        id: promote
+        run: node scripts/promote-worker.mjs
+        env:
+          TESTED_SHA: ${{ github.sha }}

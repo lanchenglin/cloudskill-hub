@@ -15,7 +15,7 @@
 - 不输出、不提交真实 Cloudflare Token、BOOTSTRAP_SECRET、网页账号密码及 Hub 发布/只读令牌或含凭据的 Skills；部署凭据保存在用户账号的仓库外私有目录。
 - GitHub 保存程序源码；cloudskill publish 写入私人 Hub。两者不得混淆。
 - 保留 DB / BUCKET / ASSETS 绑定、nodejs_compat、全部数据库迁移、上传校验和私有权限；不要为了部署方便重构业务。
-- 不擅自启用 GitHub 自动部署、不上传用户真实技能、不改现有 Hermes / Claude / Codex 配置或模型。
+- 不恢复已移除的 GitHub 直接部署工作流、不上传用户真实技能、不改现有 Hermes / Claude / Codex 配置或模型。
 - 本地与 CI 测试、线上接口验证、实际 A/B 机器安装、模型加载执行必须分别报告，不能用一项冒充另一项。
 
 ## 常用资料
@@ -29,3 +29,7 @@
 个人自用优先：当前不做性能扩展。Token 可以选择永久，只在网页自行签发；初始化不使用 --token-days、不生成 A/B 文件。新权限按共享/全部技能划分，不按项目/设备；永久仍可手动撤销，不改变会话期限或旧 Token。
 
 新设置的密码统一为6–20个字符（Unicode码点），不截断/去除空格。旧密码登录兼容保留，不重置现有账号；默认初始密码和首次强制改密不变。
+
+## 发布分支（已确定）
+
+main 用于开发/测试，worker 是固定发布分支。ci.yml 在 main push 的六项测试全部成功后，通过 promote-worker job 同步准确测试 SHA；不要手动覆盖 worker 或让 Cloudflare 监听 main。首次生产部署应拉取 worker 完整源码；开发和本地测试仍用 main。GitHub不执行云部署，Cloudflare连接后只从worker构建。只配置GitHub的任务不授权操作Cloudflare账号、资源或构建设置。细节见 docs/PUBLISH_GITHUB.md。

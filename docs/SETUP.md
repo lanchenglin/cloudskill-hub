@@ -1,13 +1,13 @@
 # 当前版本首次部署
 
-只使用当前 main；不需要安装中间版本。让 AI 执行时先读 [AI_DEPLOY.md](../AI_DEPLOY.md)。本指南不是部署成功记录。
+部署使用 CI 通过后的 worker 完整代码；不需要安装中间版本。让 AI 执行时先读 [AI_DEPLOY.md](../AI_DEPLOY.md)。本指南不是部署成功记录。
 
 ## 1. 环境、源码与测试
 
 准备 Node.js >=22.16、npm、Git 和自己的 Cloudflare 账号。
 
 ```bash
-git clone https://github.com/lanchenglin/cloudskill-hub.git
+git clone --branch worker https://github.com/lanchenglin/cloudskill-hub.git
 cd cloudskill-hub
 npm ci
 npm run check
@@ -114,4 +114,4 @@ npm run reset-password -- --remote --config /YOUR/PRIVATE/DEPLOY-DIR/wrangler.js
 
 新密码隐藏输入；AI 可用仓库外 `--password-file`，不要用命令行明文参数。`--revoke-tokens` 是显式撤销全部 API Token 的可选项；默认不影响已有 Token。没有公网重置接口，详见 [AUTH.md](AUTH.md)。
 
-GitHub 自动部署保持关闭；首次上线与验收成功后，才考虑 [可选工作流](PUBLISH_GITHUB.md)。
+GitHub负责main全量检查后同步worker，不直接部署Cloudflare。首次上线和验收完成后，在用户授权下将Cloudflare Workers Builds生产分支设为worker；参见[固定发布流程](PUBLISH_GITHUB.md)。

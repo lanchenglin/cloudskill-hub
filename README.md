@@ -5,7 +5,7 @@
 [![CI](https://github.com/lanchenglin/cloudskill-hub/actions/workflows/ci.yml/badge.svg)](https://github.com/lanchenglin/cloudskill-hub/actions/workflows/ci.yml)
 [![MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-当前完整版本 **0.4.1**，直接使用 `main`；不需要安装中间版本。Workers + D1 + 私有 R2，无需独立 VPS。尚未代替用户完成生产 Cloudflare 部署，本地/CI 结果不代表已经上线。
+当前完整版本 **0.4.1**，开发使用 `main`，发布使用 CI 通过后自动同步的 `worker`；不需要安装中间版本。Workers + D1 + 私有 R2，无需独立 VPS。尚未代替用户完成生产 Cloudflare 部署，本地/CI 结果不代表已经上线。
 
 ## 权限只有这三种使用方式
 
@@ -68,6 +68,12 @@ cloudskill publish personal ./private-skill --private
 私有访问控制不是凭据保险库。文件中的凭据仍会随文件复制、进入版本历史和本地备份；隐藏 `.env` / `.ssh` 等危险路径仍被拒绝。客户端拿到文件后，撤销 Hub Token 不能收回已经复制的服务密钥。
 
 将最新版本设为共享时，不会自动公开过去的私有版本。共享访问必须同时满足“技能当前是共享”和“该版本在发布时是共享”；变回私有后匿名访问停止。可见性变更会建立新版本，即使文件字节相同。
+
+## 程序发布分支
+
+**main → 全部六项 CI 通过 → 自动同步 worker → Cloudflare 从 worker 构建部署。** worker 是固定发布分支，保存本次测试通过的完整源码；不手工切新分支、不放独立修改、不强推覆盖。main 测试失败时 worker 不变，晚完成的旧任务不会覆盖较新提交。
+
+GitHub 仅负责测试和分支同步，旧的直接部署工作流已移除；不需要在 GitHub 填 Cloudflare 密钥或个人 PAT。Cloudflare 的生产分支需在后续连接时选 `worker`，不能把 GitHub 配置完成当作 Cloudflare 已部署。详见 [GitHub 与 Cloudflare 发布流程](docs/PUBLISH_GITHUB.md)。
 
 ## 安装与部署入口
 

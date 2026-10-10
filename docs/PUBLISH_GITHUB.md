@@ -1,52 +1,90 @@
-# GitHub 源码仓库与可选部署工作流
+# GitHub 发布流程：main → worker → Cloudflare
 
-当前项目源码仓库：[`lanchenglin/cloudskill-hub`](https://github.com/lanchenglin/cloudskill-hub)，使用 `main` 当前版本。仓库已经建立，**无需重新 `git init`、另建仓库或强推覆盖历史**。
+本项目固定使用两个长期分支：`main` 开发和测试，`worker` 保存通过 CI 的完整发布源码。**worker 只创建一次，此后由 GitHub Actions 快进更新，不生成合并提交、不另外维护代码。** 历史开发分支无需删除。
 
-项目还没有在实际使用的 Cloudflare 账号完成首次部署；先按 [SETUP.md](SETUP.md) 手动完成初始化，再考虑自动部署。
+## 已配置的 GitHub 流程
 
-## 源码提交不等于技能同步
-
-| 操作 | 去向 | 内容 |
-|---|---|---|
-| `git commit` / `git push` | GitHub 程序源码仓库 | Worker、网页、CLI、测试、部署模板、文档 |
-| `cloudskill publish personal <目录> --private` | 自己的私人 Hub | Skill 文件到 R2，项目和版本元数据到 D1 |
-| `cloudskill update` / `sync` | 从私人 Hub 到当前设备 | 拉取托管/订阅范围内的技能 |
-
-日常 A 修改技能、B 手动更新，不需要提交 GitHub。不要把真实技能凭据、Cookie、私钥或 Token 放进这个公开仓库，包括 `examples/`、测试样例、Issue、提交信息和日志。
-
-## 继续开发源码
-
-```bash
-git clone https://github.com/lanchenglin/cloudskill-hub.git
-cd cloudskill-hub
-npm install
-npm run check
+```text
+提交到 main
+    ↓
+Test CloudSkill Hub
+    ├─ test (ubuntu-latest, 22)
+    ├─ test (ubuntu-latest, 24)
+    ├─ test (windows-latest, 22)
+    ├─ test (windows-latest, 24)
+    ├─ worker-runtime
+    └─ browser
+    ↓ 全部成功
+Promote tested main to worker
+    ↓ 精确快进到本次测试的 SHA
+worker 分支收到推送
+    ↓ Cloudflare 连接配置完成以后
+Cloudflare Workers Builds 构建、迁移和部署
 ```
 
-已持有源码时直接进入目录。正常在新分支开发、检查差异和测试后提交；不要用强推重写已有 `main`。
+`.github/workflows/ci.yml` 的同步 job 显式依赖 test 矩阵、worker-runtime 和 browser。任何一项失败、取消或未成功，均不会更新 worker。它只在 **main 的 push** 上执行；PR、其他分支和手工运行脚本不具备相同发布入口。worker 推送不重复运行本项目 CI。
 
-当前 MIT 许可证和来源说明继续保留。公开程序源码不会自动公开私有 R2 中的技能内容，但自己提交到 Git 的文件会受 GitHub 仓库可见性约束。
+同步使用 Actions 自带的 `GITHUB_TOKEN`，只在同步 job 授予 `contents: write`；测试 job 保持只读。**不需要向 GitHub 填 Cloudflare 密钥、Hub Token 或个人 PAT。** 后续组织/仓库策略若收紧，应检查同步 job 的实际权限，不使用全站密钥绕过。
 
-## 两个 GitHub Actions 工作流
+旧的 `.github/workflows/deploy.yml` 已移除，GitHub 不再执行 `wrangler deploy` 或远程数据库迁移。旧 `ENABLE_CLOUDFLARE_DEPLOY` 开关不再被当前流程使用；即使以前配置过它，也不会激活一个已移除的 job。历史 Actions 运行记录可以保留。
 
-**`ci.yml`：测试。** 推送或 PR 会触发 Ubuntu / Windows、原生本地 workerd/D1/R2 和 Chromium 检查。通过测试不表示已经上线 Cloudflare。
+## 同步保护
 
-**`deploy.yml`：可选部署。** 首次使用保持不开启。它需要实际资源绑定、初始化 Secret 和部署授权；不会替你自动建立完整生产环境或保存网页管理员令牌。
+同步脚本为 `scripts/promote-worker.mjs`。它核对本地 checkout 与测试 SHA；推送的永远是该 SHA，不是重新拉取一个未经测试的新 main。
 
-首次手动部署成功、准备交给 GitHub 后续部署时，才配置：
+main 已继续向前时，旧任务显示 `skipped / main-advanced`，让较新的 main CI 负责发布。worker 已相同则为 `current`，不重复推送。worker 存在不在该 main 提交历史中的改动时停止，**绝不 force push、重置或自动合并**。推送前再次检查 main，推送时由 Git 的非强制更新检查阻止回退；竞态失败会明确报错。
 
-| 位置 | 名称 | 用途 |
-|---|---|---|
-| GitHub Actions Secrets | `CLOUDFLARE_API_TOKEN` | Cloudflare 部署权限，不是 `csh_` 开头的 Hub 令牌 |
-| GitHub Actions Secrets | `CLOUDFLARE_ACCOUNT_ID` | 目标 Cloudflare 账号 |
-| GitHub Actions Variables | `ENABLE_CLOUDFLARE_DEPLOY` | 明确设为 `true` 才启用部署 job |
-| `wrangler.jsonc` | 真实 D1 ID / R2 桶名 | 指向已经建立的资源 |
-| Cloudflare Worker Secret | `BOOTSTRAP_SECRET` | 首次网页初始化使用，不提交到 Git |
+同步 job 使用独立的串行 concurrency group，不因新的同步 job 到来而取消正在执行的推送。Actions 对待执行任务的排序不保证先后，因此仍保留 SHA、祖先关系和远端二次检查。这里是自动化自身的保护，不等于已给每个仓库设置管理员分支保护规则；不要手工往 worker 塞入独有改动。
 
-工作流顺序为安装依赖、测试、应用数据库 SQL、部署 Worker。启用开关后，匹配工作流路径规则的 `main` 推送可能部署；只修改 README/docs 不在当前部署路径触发范围内。此说明更新不设置任何 Secret、不启用部署开关，也不执行生产部署。
+Actions 摘要记录 `created / promoted / current / skipped`、测试 SHA 及原 worker SHA。**这个结果只说明 GitHub 分支同步，不代表 Cloudflare 已上线。**
 
-## 版权与参考
+## 日常使用
 
-实现思路参考 skillsgist、Agent Skills、skills-handler 和 Hermes 的公开约定，项目本身独立实现，不依赖 skillsgist 的程序运行。保留 [LICENSE](../LICENSE)；未来引入第三方代码或资产时应检查许可证并保留要求的说明。
+正常在 main 或临时功能分支开发，检查差异后合入 main；不要直接修改 worker。主流程会自动同步通过检查的提交，不需要每次手动创建分支或合并。纯文档改动也走检查和同步，不通过路径过滤绕过发布规则。
 
-网页使用账号密码；共享匿名可读，修改权限通过网页自行签发 shared_writer/all_writer Token。AI 初始化仅在仓库外保存 web-admin.json，不自动生成任何 Token。所有真实凭据不得提交公开仓库。见 [AI_DEPLOY.md](../AI_DEPLOY.md)。
+```bash
+git switch main
+git pull --ff-only
+# 修改后运行测试，再正常提交推送
+npm run check
+git push origin main
+```
+
+main 和 worker 正常情况下指向同一个通过检查的提交；当 main 正在测试或测试失败时，worker 保持上一个可发布版本。需要恢复时，应在 main 正常提交修复或 revert 后重新通过 CI，不直接强推 worker 回退。数据库和 R2 数据不随 Git/Worker 代码回退自动恢复。
+
+## Cloudflare 后续连接（不是本次已完成事项）
+
+用户授权配置 Cloudflare 时，连接这个仓库，并设置：
+
+| 设置 | 值 |
+|---|---|
+| 生产分支 | **worker** |
+| 项目根目录 | 仓库根目录 |
+| 非生产分支 Preview Builds | 个人使用先关闭 |
+| Node | 满足 package.json 的 >=22.16，选受支持的22/24版本 |
+| 构建命令 | `npm run check` |
+| 部署命令 | `npm run db:migrate && npm run deploy`（完成实际绑定后） |
+
+Cloudflare 的生产分支监听是独立外部集成，不依赖 worker 再跑一次 GitHub Actions。GitHub 官方说明 GITHUB_TOKEN 产生的 push 不会递归触发新的 Actions 工作流；**Cloudflare 的实际监听仍须在连接后验证**：确认构建收到 worker 分支的对应 SHA，而不是仅检查 GitHub 同步成功。不要为了让 GitHub 再跑一遍而向公开仓库配置高权限个人 PAT。
+
+首次仍必须建立/核对 D1 与私有 R2，准备统一生产配置。当前模板中的 D1 ID 不能原样部署。不要只在 worker 分支修改生产配置，否则分支将分叉；配置应在 main 统一维护并经 CI 同步，或由 Cloudflare 构建环境生成配置。部署配置不包含真实密码/Token。迁移使用同一目标 DB；失败时不要继续部署。之后的自动部署不得初始化/重置账号、清库或自动签发 Token。
+
+只配置 GitHub 并不会修改 Cloudflare 的生产分支、授权 GitHub App 或创建云资源。完成首次 Cloudflare 连接时另按 [SETUP](SETUP.md) 与 [AI_DEPLOY](../AI_DEPLOY.md) 操作；这两项不能混报。
+
+## 故障定位
+
+| 状态 | 处理 |
+|---|---|
+| 测试失败 | 修复 main；worker 保持不变 |
+| 同步被跳过 | 检查是否为 main push、是否 main 已前进、所有依赖是否成功 |
+| 同步403/推送失败 | 检查 Actions 写权限、GitHub规则与远端状态；不自动强推 |
+| worker 分叉 | 将需要的改动正常合回 main，再重新验证；不要删除远端历史 |
+| CI通过但worker未更新 | 在本次 main 运行中重新运行失败/同步 job；仍核对测试 SHA；旧任务在main前进后会跳过 |
+| worker已同步，Cloudflare无构建 | 检查 Cloudflare 是否已连接、生产分支是否worker、预览/构建规则和GitHub App授权 |
+| Cloudflare构建失败 | 检查绑定、Node与命令、迁移和构建日志；不要把分支同步称为已上线 |
+
+## 源码不等于 Skills
+
+`git push` 保存程序源码；`cloudskill publish` 将技能送到自己的 Hub。不要把真实技能里的凭据、网页登录密码、Cloudflare密钥或Hub Token提交到这个公开源码仓库。初始化仍只保存仓库外 web-admin.json，Token由本人在网页手动签发。
+
+参考：[GitHub jobs.needs / permissions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax) · [GITHUB_TOKEN事件](https://docs.github.com/en/actions/concepts/security/github_token) · [Cloudflare构建分支](https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/)。保留 [MIT LICENSE](../LICENSE) 和项目原有来源说明。
