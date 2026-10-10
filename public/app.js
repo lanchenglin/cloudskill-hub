@@ -38,7 +38,8 @@ async function api(path,method='GET',data,extraHeaders={}){
     if(res.status===401&&!path.startsWith('/api/auth/'))clearLogin();
     if(reply.error==='password_change_required'&&state.me){state.mustChangePassword=true;authUi(true);}
     const hint=res.status===429?'尝试过于频繁，请稍后再试（服务器已限速）':reply.error||`HTTP ${res.status}`;
-    throw Object.assign(Error(hint),{status:res.status});
+    const tokenHints={token_key_unavailable:'令牌加密密钥尚未配置或格式不正确，请按部署说明设置 TOKEN_ENCRYPTION_KEY。',token_decryption_failed:'无法解密此令牌，请恢复原 TOKEN_ENCRYPTION_KEY；不要重新生成密钥覆盖。',token_value_unavailable:'旧令牌只保存了哈希，无法还原；原令牌仍可使用，需要可查看的令牌请重新签发。'};
+    throw Object.assign(Error(tokenHints[reply.error]||hint),{status:res.status});
   }
   return reply;
 }
@@ -50,6 +51,7 @@ function authUi(active){
   document.querySelectorAll('.nav-item,[data-go]').forEach(el=>el.disabled=!active||restricted);
 }
 function clearLogin(){
+  clearVisibleTokens();
   activeUpload?.abort();selectedFiles=[];pickGeneration++;
   if($('detailDialog').open)$('detailDialog').close();$('detailBody').replaceChildren();
   state.csrfToken='';state.me=null;state.mustChangePassword=false;$('forcePasswordForm').reset();$('forcePasswordError').textContent='';state.skills=[];state.projects=[];state.devices=[];
@@ -94,7 +96,7 @@ async function sensitiveApi(path,method,data){
   }
 }
 async function refresh(){const [projects,skills,cap]=await Promise.all([api('/api/projects'),api('/api/catalog'),api('/api/capabilities')]);state.capabilities=cap;showLimits(cap.limits);state.projects=projects.projects;state.skills=skills.skills;if(state.me.role==='admin'){try{state.devices=(await api('/api/devices')).devices;}catch{state.devices=[];}}render();}
-function view(name){if(!state.me||state.mustChangePassword)return;state.view=name;document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.view===name));document.querySelectorAll('.view').forEach(el=>el.hidden=el.id!=='view-'+name);$('crumb').textContent={library:'技能仓库',publish:'发布技能',devices:'客户端设备',security:'访问权限'}[name]||name;if(name==='devices')renderDevices();if(name==='security')renderSecurity();}
+function view(name){if(!state.me||state.mustChangePassword)return;if(name!=='security')clearVisibleTokens();state.view=name;document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.view===name));document.querySelectorAll('.view').forEach(el=>el.hidden=el.id!=='view-'+name);$('crumb').textContent={library:'技能仓库',publish:'发布技能',devices:'客户端设备',security:'访问权限'}[name]||name;if(name==='devices')renderDevices();if(name==='security')renderSecurity();}
 function projectOptions(select,placeholder=false){const current=select.value;select.replaceChildren();if(placeholder){const opt=node('option',null,'全部项目');opt.value='';select.append(opt);}for(const p of state.projects){const opt=node('option',null,p.title+' · '+p.slug);opt.value=p.slug;select.append(opt);}if([...select.options].some(x=>x.value===current))select.value=current;}
 function render(){ $('numSkills').textContent=state.skills.length;$('numProjects').textContent=state.projects.length;$('numDevices').textContent=state.me.role==='admin'?state.devices.length:'—';projectOptions($('projectFilter'),true);projectOptions($('publishProject'));renderSkills();renderDevices();renderSecurity();}
 function renderSkills(){const q=$('search').value.trim().toLowerCase();const p=$('projectFilter').value;const skills=state.skills.filter(s=>(!p||s.project===p)&&`${s.slug} ${s.project} ${s.description}`.toLowerCase().includes(q));const grid=$('skillsGrid');grid.replaceChildren();if(!skills.length)return grid.append(node('div','empty','没有匹配的 Skill。可先创建项目，再发布 SKILL.md。'));
@@ -190,9 +192,86 @@ function renderDevices(){const root=$('deviceList');root.replaceChildren();if(!s
     container.append(details);}
   root.append(container);
  }}
+// Secret values live only in the visible DOM, never in browser storage or list data.
+let tokenUiGeneration=0,tokenListGeneration=0,revealSequence=0,revealTimer,issuedTimer;
+function clearRevealedToken(){
+  revealSequence++;clearTimeout(revealTimer);
+  $('tokenRevealValue').textContent='';$('tokenRevealLabel').textContent='';$('tokenRevealStatus').textContent='';
+  if($('tokenRevealDialog').open)$('tokenRevealDialog').close();
+}
+function clearIssuedToken(){clearTimeout(issuedTimer);$('issuedValue').textContent='';$('issuedToken').hidden=true;}
+function clearVisibleTokens(){tokenUiGeneration++;tokenListGeneration++;clearRevealedToken();clearIssuedToken();}
+async function showTokenValue(token){
+  clearVisibleTokens();const generation=tokenUiGeneration,sequence=revealSequence;
+  try{
+    const result=await sensitiveApi(`/api/tokens/${token.id}/reveal`,'POST',{});
+    // A request finishing after logout, navigation, hiding or another reveal must not redisplay it.
+    if(generation!==tokenUiGeneration||sequence!==revealSequence||!state.me||state.mustChangePassword||state.view!=='security'||document.hidden)return;
+    $('tokenRevealLabel').textContent=token.label;
+    $('tokenRevealValue').textContent=result.token;
+    $('tokenRevealStatus').textContent=result.active?'可复制到需要此权限的客户端。':'此令牌已过期或撤销，仅供核对，查看不会使其恢复有效。';
+    $('tokenRevealDialog').showModal();revealTimer=setTimeout(clearRevealedToken,60000);
+  }catch(error){if(generation===tokenUiGeneration&&state.me)toast(error.message,true);}
+}
+$('hideTokenValue').onclick=clearRevealedToken;
+$('tokenRevealDialog').addEventListener('cancel',event=>{event.preventDefault();clearRevealedToken();});
+$('tokenRevealDialog').addEventListener('close',()=>{if(!$('tokenRevealDialog').open&&$('tokenRevealValue').textContent)clearRevealedToken();});
+$('hideIssued').onclick=clearIssuedToken;
+$('copyTokenValue').onclick=async()=>{
+  const value=$('tokenRevealValue').textContent;if(!value)return;
+  try{await navigator.clipboard.writeText(value);toast('已复制到剪贴板');}catch{toast('浏览器不允许自动复制，请选中令牌手动复制',true);}
+};
+window.addEventListener('pagehide',clearVisibleTokens);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)clearVisibleTokens();});
 function renderSecurity(){if(state.me?.role==='admin')refreshTokens();}
-async function refreshTokens(){try{const items=(await api('/api/tokens')).tokens;const root=$('tokensList');root.replaceChildren();for(const t of items){const row=node('div','row-card'),info=node('div');info.append(node('b',null,t.label),node('small',null,({shared_writer:'修改共享技能',all_writer:'修改全部技能',client:'旧只读令牌',publisher:'旧项目发布令牌',admin:'旧管理员 API'}[t.role]||t.role)+' · '+(t.revoked_at?'已撤销':t.expires_at&&Date.parse(t.expires_at)<=Date.now()?'已过期':'有效')+(t.permission_mode==='legacy'?' · 旧项目范围 '+t.project_scope:'')+' · 有效期 '+(t.expires_at===null?'永久有效（可手动撤销）':t.expires_at||'未知，请核实')));row.append(info);if(!t.revoked_at){const btn=node('button',null,'撤销');btn.onclick=async()=>{if(!confirm(`撤销 ${t.label}？`))return;try{await sensitiveApi(`/api/tokens/${t.id}/revoke`,'POST',{});await refreshTokens();toast('令牌已撤销');}catch(e){toast(e.message,true);}};row.append(btn);}root.append(row);}}catch(e){toast(e.message,true);}}
-async function issue(ev){ev.preventDefault();try{const role=$('tokenRole').value;const result=await sensitiveApi('/api/tokens','POST',{label:$('tokenLabel').value,role,expiresInDays:$('tokenDays').value==='never'?null:Number($('tokenDays').value)});$('issuedValue').textContent=result.token;$('issuedToken').hidden=false;await refreshTokens();toast('令牌已生成，请立即复制');}catch(e){toast(e.message,true);}}
+async function refreshTokens(){
+  clearRevealedToken();const generation=++tokenListGeneration,identity=tokenUiGeneration;
+  try{
+    const result=await api('/api/tokens');
+    if(generation!==tokenListGeneration||identity!==tokenUiGeneration||!state.me||state.mustChangePassword)return;
+    state.tokenStorageReady=result.tokenStorage?.configured===true;
+    $('tokenStorageWarning').hidden=state.tokenStorageReady;
+    document.querySelector('#tokenForm button[type="submit"]').disabled=!state.tokenStorageReady;
+    const root=$('tokensList');root.replaceChildren();
+    for(const t of result.tokens){
+      const row=node('div','row-card'),info=node('div');row.dataset.tokenId=t.id;
+      info.append(node('b',null,t.label),node('small',null,
+        ({shared_writer:'修改共享技能',all_writer:'修改全部技能',client:'旧只读令牌',publisher:'旧项目发布令牌',admin:'旧管理员 API'}[t.role]||t.role)+' · '+
+        (t.revoked_at?'已撤销':t.expires_at&&Date.parse(t.expires_at)<=Date.now()?'已过期':'有效')+
+        (t.permission_mode==='legacy'?' · 旧项目范围 '+t.project_scope:'')+' · 有效期 '+
+        (t.expires_at===null?'永久有效（可手动撤销）':t.expires_at||'未知，请核实')));
+      row.append(info);const actions=node('div','token-actions');
+      if(t.recoverable){
+        const reveal=node('button','token-view-button','查看 / 复制');reveal.type='button';
+        reveal.onclick=()=>showTokenValue(t);actions.append(reveal);
+      }else info.append(node('small',null,'旧令牌未保存可恢复副本，无法查看；需要时请重新签发。'));
+      if(!t.revoked_at){
+        const revoke=node('button',null,'撤销');revoke.type='button';
+        revoke.onclick=async()=>{
+          if(!confirm(`撤销 ${t.label}？`))return;
+          clearVisibleTokens();
+          try{await sensitiveApi(`/api/tokens/${t.id}/revoke`,'POST',{});await refreshTokens();toast('令牌已撤销');}
+          catch(error){toast(error.message,true);}
+        };actions.append(revoke);
+      }
+      row.append(actions);root.append(row);
+    }
+  }catch(error){if(generation===tokenListGeneration&&state.me)toast(error.message,true);}
+}
+async function issue(ev){
+  ev.preventDefault();const button=ev.target.querySelector('button[type="submit"]');button.disabled=true;
+  const generation=tokenUiGeneration;
+  try{
+    const role=$('tokenRole').value;
+    const result=await sensitiveApi('/api/tokens','POST',{label:$('tokenLabel').value,role,expiresInDays:$('tokenDays').value==='never'?null:Number($('tokenDays').value)});
+    if(generation!==tokenUiGeneration||!state.me)return;
+    await refreshTokens();
+    if(generation!==tokenUiGeneration||!state.me||state.view!=='security'||document.hidden)return;
+    clearIssuedToken();$('issuedValue').textContent=result.token;$('issuedToken').hidden=false;
+    issuedTimer=setTimeout(clearIssuedToken,60000);toast('令牌已生成，以后也可从列表查看和复制');
+  }catch(error){if(generation===tokenUiGeneration&&state.me)toast(error.message,true);}
+  finally{button.disabled=!state.tokenStorageReady;}
+}
 async function newProject(ev){ev.preventDefault();try{await api('/api/projects','POST',{slug:$('newProjectSlug').value,title:$('newProjectTitle').value});$('projectForm').reset();toast('项目已创建');await refresh();}catch(e){toast(e.message,true);}}
 document.querySelectorAll('.nav-item').forEach(el=>el.addEventListener('click',()=>view(el.dataset.view)));
 document.querySelectorAll('[data-go]').forEach(el=>el.addEventListener('click',()=>view(el.dataset.go)));
@@ -238,7 +317,7 @@ $('passwordForm').onsubmit=async e=>{
 };
 $('revokeAllTokens').onclick=async()=>{
   if(!confirm('撤销所有 API 令牌？A、B 等客户端之后都需要重新配置。已下载的文件不会被收回。'))return;
-  try{await sensitiveApi('/api/auth/revoke-all-tokens','POST',{confirm:'revoke-all-api-tokens'});$('issuedToken').hidden=true;$('issuedValue').textContent='';await refreshTokens();toast('全部 API 令牌已撤销');}catch(error){toast(error.message,true);}
+  try{clearVisibleTokens();await sensitiveApi('/api/auth/revoke-all-tokens','POST',{confirm:'revoke-all-api-tokens'});$('issuedToken').hidden=true;$('issuedValue').textContent='';await refreshTokens();toast('全部 API 令牌已撤销');}catch(error){toast(error.message,true);}
 };
 $('search').oninput=renderSkills;$('projectFilter').onchange=renderSkills;
 $('skillFile').onchange=e=>onPicked(e,'file');$('skillFolder').onchange=e=>onPicked(e,'folder');$('skillZip').onchange=e=>onPicked(e,'zip');

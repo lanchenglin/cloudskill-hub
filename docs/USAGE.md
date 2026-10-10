@@ -86,3 +86,9 @@ cloudskill connect https://YOUR-HUB
 `cloudskill logout` 只删除当前本地凭据，不撤销服务器 Token。网页撤销才阻止后续访问；改网页密码不会自动撤销 Token。旧 Token-only/项目限定令牌可继续按原权限使用，但不再新签发，也不自动升权。
 
 其他已知使用问题见 [ROADMAP](ROADMAP.md)，权限/API 见 [AUTH](AUTH.md) / [API](API.md)。
+
+## 令牌不用只复制一次
+
+登录网页 → 访问权限 → 令牌列表 → 查看 / 复制。新签发的两种 Token 都支持重复查看；刷新、退出后重新登录、修改管理员密码不会让已保存的新令牌值消失。页面不默认列出所有明文，可手动隐藏，60秒后也会隐藏，之后可再点查看。
+
+查看不重置 Token，不影响其他设备；已经过期/撤销时仍标注无效，不会因查看而恢复。老版本只保存哈希的令牌没有可恢复原值，会给出明确提示，不替你自动换 Token。部署者需一次性配置长期 TOKEN_ENCRYPTION_KEY，详见 [TOKEN_VIEW](TOKEN_VIEW.md)；日常查看不需要输入这个密钥。

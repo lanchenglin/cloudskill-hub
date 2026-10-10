@@ -88,3 +88,7 @@ Cloudflare 的生产分支监听是独立外部集成，不依赖 worker 再跑�
 `git push` 保存程序源码；`cloudskill publish` 将技能送到自己的 Hub。不要把真实技能里的凭据、网页登录密码、Cloudflare密钥或Hub Token提交到这个公开源码仓库。初始化仍只保存仓库外 web-admin.json，Token由本人在网页手动签发。
 
 参考：[GitHub jobs.needs / permissions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax) · [GITHUB_TOKEN事件](https://docs.github.com/en/actions/concepts/security/github_token) · [Cloudflare构建分支](https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/)。保留 [MIT LICENSE](../LICENSE) 和项目原有来源说明。
+
+## 令牌再次查看的生产 Secret
+
+0.4.2新增运行时Secret TOKEN_ENCRYPTION_KEY和迁移0006。首次部署在Cloudflare Worker设置这个长期Secret；不放GitHub Actions、不提交wrangler vars、不仅放在Cloudflare Build环境变量。自动构建不得重新运行随机密钥生成，也不得将它按一次性bootstrap删除。每次部署仍使用同一密钥，D1迁移只增量应用；创建方式和恢复规则见 [TOKEN_VIEW](TOKEN_VIEW.md)。这里是部署要求，不表示本次已经操作生产账号。

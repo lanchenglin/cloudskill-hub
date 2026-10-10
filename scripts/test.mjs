@@ -8,7 +8,7 @@ const root=fileURLToPath(new URL('../',import.meta.url));
 const temp=await fs.mkdtemp(path.join(os.tmpdir(),'cloudskill-test-env-'));
 const env={...process.env};
 for(const key of ['HERMES_HOME','CLAUDE_CONFIG_DIR','CODEX_HOME','CLOUDSKILL_HOME','CLOUDSKILL_CONFIG_DIR',
-  'CLOUDSKILL_TOKEN','CLOUDFLARE_API_TOKEN','CLOUDFLARE_ACCOUNT_ID','CLOUDFLARE_API_KEY','CLOUDFLARE_EMAIL'])delete env[key];
+  'CLOUDSKILL_TOKEN','TOKEN_ENCRYPTION_KEY','CLOUDFLARE_API_TOKEN','CLOUDFLARE_ACCOUNT_ID','CLOUDFLARE_API_KEY','CLOUDFLARE_EMAIL'])delete env[key];
 env.CLOUDSKILL_HOME=path.join(temp,'home');env.CLOUDSKILL_CONFIG_DIR=path.join(temp,'client');
 try{
   const tests=(await fs.readdir(path.join(root,'test'))).filter(n=>n.endsWith('.test.mjs')).sort().map(n=>path.join(root,'test',n));

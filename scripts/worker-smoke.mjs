@@ -20,6 +20,7 @@ try{
   config.d1_databases[0].database_id='00000000-0000-0000-0000-000000000001';config.d1_databases[0].migrations_dir=path.join(root,'migrations');
   config.vars.BOOTSTRAP_SECRET='local-smoke-test-bootstrap-secret-not-production';delete config.triggers;
   const cfg=path.join(temp,'wrangler.json');await fs.writeFile(cfg,JSON.stringify(config));
+  await fs.writeFile(path.join(temp,'.dev.vars'),'TOKEN_ENCRYPTION_KEY='+randomBytes(32).toString('hex')+'\n',{mode:0o600});
   const cli=path.join(root,'node_modules/wrangler/bin/wrangler.js');
   const env={...process.env,WRANGLER_SEND_METRICS:'false',CI:'true'};
   const migration=spawnSync(process.execPath,[cli,'d1','migrations','apply','DB','--local','--config',cfg,'--persist-to',temp],{cwd:root,env,stdio:'inherit',timeout:60000});
@@ -54,6 +55,14 @@ try{
   const readerRecord=await api('/api/tokens','POST',{label:'B',role:'shared_writer',expiresInDays:null});
   assert.equal(pubRecord.expiresAt,null);assert.equal(readerRecord.expiresAt,null);
   const publisher=pubRecord.token,token=readerRecord.token;
+  const inventory=await api('/api/tokens');
+  assert.equal(inventory.tokenStorage.configured,true);
+  assert.equal(inventory.tokens.find(t=>t.id===pubRecord.id).recoverable,true);
+  assert.ok(!JSON.stringify(inventory).includes(publisher));
+  assert.equal((await api('/api/tokens/'+pubRecord.id+'/reveal','POST',{})).token,publisher);
+  assert.equal((await api('/api/tokens/'+readerRecord.id+'/reveal','POST',{})).token,token);
+  const deniedReveal=await fetch(url+'/api/tokens/'+pubRecord.id+'/reveal',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:'{}'});
+  assert.equal(deniedReveal.status,403);await deniedReveal.body.cancel();
   assert.equal((await api('/api/me','GET',null,token)).expiresAt,null);
   const finite=await api('/api/tokens','POST',{label:'Finite',role:'shared_writer',expiresInDays:30});
   assert.ok(Date.parse(finite.expiresAt)>Date.now()+29*86400000);
@@ -78,6 +87,9 @@ try{
   assert.equal((await fetch(url+'/api/auth/session',{headers:{Cookie:cookie}})).status,401);
   assert.equal((await api('/api/me','GET',null,token)).role,'shared_writer');
   await api('/api/auth/login','POST',{username:'native-admin',password:'Native changed 67890'});
+  assert.equal((await api('/api/tokens/'+readerRecord.id+'/reveal','POST',{})).token,token);
+  const oldValue=await api('/api/tokens/'+pubRecord.id+'/reveal','POST',{});
+  assert.equal(oldValue.token,publisher);assert.equal(oldValue.active,false);
   await api('/api/auth/logout','POST',{});
   const recoveryFile=path.join(temp,'recovery-password.json');
   await fs.writeFile(recoveryFile,JSON.stringify({password:'reset6'}),{mode:0o600});
@@ -86,7 +98,7 @@ try{
   assert.ok(!recovery.stdout.includes('reset6'));
   await api('/api/auth/login','POST',{username:'native-admin',password:'reset6'});
   await api('/api/auth/logout','POST',{});
-  console.log('PASS: native workerd 6-character first password/recovery and 20-character normal change; scrypt, default login/forced activation/rotation/logout/recovery CLI, shared/all tokens + anonymous binary install + independent revocation, D1 migrations, 7 MiB R2 upload, 3-agent install, idempotence and cleanup');
+  console.log('PASS: native encrypted token storage/reveal, repeat viewing after password change and revoked-value inspection; workerd 6-character first password/recovery and 20-character normal change; scrypt, default login/forced activation/rotation/logout/recovery CLI, shared/all tokens + anonymous binary install + independent revocation, D1 migrations, 7 MiB R2 upload, 3-agent install, idempotence and cleanup');
 }catch(error){console.error(logs);throw error;}
 finally{
   if(child&&child.exitCode===null){try{process.platform==='win32'?child.kill():process.kill(-child.pid,'SIGTERM');}catch{}await new Promise(r=>{if(child.exitCode!==null)return r();const t=setTimeout(r,5000);child.once('exit',()=>{clearTimeout(t);r();});});if(child.exitCode===null){try{process.platform==='win32'?child.kill('SIGKILL'):process.kill(-child.pid,'SIGKILL');}catch{}}}

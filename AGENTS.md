@@ -33,3 +33,5 @@
 ## 发布分支（已确定）
 
 main 用于开发/测试，worker 是固定发布分支。ci.yml 在 main push 的六项测试全部成功后，通过 promote-worker job 同步准确测试 SHA；不要手动覆盖 worker 或让 Cloudflare 监听 main。首次生产部署应拉取 worker 完整源码；开发和本地测试仍用 main。GitHub不执行云部署，Cloudflare连接后只从worker构建。只配置GitHub的任务不授权操作Cloudflare账号、资源或构建设置。细节见 docs/PUBLISH_GITHUB.md。
+
+新签发访问令牌必须可再次查看：认证继续用哈希，D1保存AES-256-GCM加密副本，TOKEN_ENCRYPTION_KEY作为独立长期Worker Secret。不要写入Git或vars、不要每次构建重新生成、不要随BOOTSTRAP_SECRET清理。AI部署按AI_DEPLOY.md准备/复用仓库外token-encryption.json，但仍不得自动签发Token。旧hash-only Token不可逆，不重置或自动补发；后台只由网页管理员显式查看一个值。

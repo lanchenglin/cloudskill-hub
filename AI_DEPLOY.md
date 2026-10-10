@@ -108,11 +108,35 @@ npx wrangler deploy --dry-run --config "$CSH_DEPLOY_CONFIG"
 npx wrangler d1 migrations apply DB --remote --config "$CSH_DEPLOY_CONFIG"
 ```
 
-当前完整结构包含 0001_initial.sql、0002_binary_uploads.sql、0003_web_auth.sql、0004_require_password_change.sql、0005_sharing_permissions.sql，统一命令执行全部尚未应用文件；空库不可只运行最后一个。不要删、重命名、合并 SQL。已有 Token/Skill 数据通过加法迁移保留。
+当前完整结构包含 0001_initial.sql、0002_binary_uploads.sql、0003_web_auth.sql、0004_require_password_change.sql、0005_sharing_permissions.sql、0006_recoverable_tokens.sql，统一命令执行全部尚未应用文件；空库不可只运行最后一个。不要删、重命名、合并 SQL。已有 Token/Skill 数据通过加法迁移保留。
 
 迁移后核对 web_admin 是否已有账号。已有账号时后续正常部署不重新初始化或重新设置引导 Secret；凭据缺失需要用户合法提供或经明确授权执行可信恢复。
 
 ## 6. 初始化 Secret 与部署
+
+### 6.1 长期令牌查看密钥（先核对，不能每次构建重新生成）
+
+本版新令牌支持以后在网页再次查看，需独立 Worker runtime Secret `TOKEN_ENCRYPTION_KEY`。这是256-bit密钥，64位十六进制。它不等于 BOOTSTRAP_SECRET，也不等于 Hub Token 或管理员密码。
+
+先用实际目标配置 `npx wrangler secret list --config "$CSH_DEPLOY_CONFIG"` 核对名称；不要输出密钥值。若Worker确实尚未建立，首次部署后再设置。远端已有密钥或D1已存在非空token_ciphertext记录时，不生成新值覆盖；本地文件缺失应恢复原备份或报告阻塞。只因权限/网络报错不能判定密钥不存在。
+
+确认首次配置后：
+
+```bash
+node scripts/prepare-token-key.mjs --credentials-dir "$CSH_DEPLOY_DIR"
+```
+
+脚本在仓库外私有目录生成或验证复用 token-encryption.json，不打印值，不访问Cloudflare，不自动覆盖旧文件。长期备份这个文件。下面正常部署Worker后，在管理员签发任何Token之前安全设置：
+
+```bash
+npx wrangler secret bulk "$CSH_DEPLOY_DIR/token-encryption.json" --config "$CSH_DEPLOY_CONFIG"
+```
+
+只有已确认首次设置或明确恢复**原值**时才执行bulk；后续自动构建/正常部署保留现有Secret，不重复生成。Cloudflare Builds 的构建环境变量不等于Worker运行时Secret，不能仅填写到Build变量。GitHub CI仅生成测试密钥，不接收生产密钥。
+
+缺失密钥不会重置账号或让现有Token失效，但新Token签发和查看会明确报错；不能为了“部署完成”改成明文保存或关闭检查。新的管理员会话可在令牌列表响应中核对 tokenStorage.configured，不为验收擅自签发Token。日常用户只登录网页点查看，不输入加密密钥。完整说明见 docs/TOKEN_VIEW.md。
+
+### 6.2 一次性初始化 Secret
 
 只有核实确实未初始化、没有并行部署者时才准备 BOOTSTRAP_SECRET。使用仓库外一次性文件，已存在则校验复用，不重复轮换：
 
@@ -178,6 +202,7 @@ CSH_DEPLOY_DIR/
   wrangler.json       实际账号的部署绑定，无密码/Token
   web-admin.json      初始账号，或第二阶段验证成功的新账号
   bootstrap.json      仅首次创建使用，核实后可清理
+  token-encryption.json 长期令牌查看密钥，必须保留安全备份，不随bootstrap一起删除
 ```
 
 目录0700、文件0600；Windows 检查 ACL。只告知位置和用户名，不打印真实新密码、Secret、Token 或 Cookie。默认密码是公开值，交付时提醒立即改密；不要把待改密实例称为已安全投入使用。
@@ -205,7 +230,7 @@ cloudskill update
 
 报告实际 Hub URL、共享页面 URL、网页登录用户名、web-admin.json 位置、资源标识、commit、全部迁移执行情况、当前待改密/已改密状态，以及分别完成的接口/隔离CLI/真实设备/模型验证。
 
-**明确说明：没有自动生成 Token，用户在网页自行选择两种修改权限及永久/定期。** 无 Token 时能拉取共享；私有内容需要全部修改 Token。不要再交付不存在的 A/B Token 文件。
+**明确说明：没有自动生成 Token，用户在网页自行选择两种修改权限及永久/定期，新令牌以后可从列表查看/复制。** 另报告 TOKEN_ENCRYPTION_KEY 已配置与备份文件位置，不回显值。 无 Token 时能拉取共享；私有内容需要全部修改 Token。不要再交付不存在的 A/B Token 文件。
 
 现有 Hermes 目录和模型配置不动；GitHub 仅测试并同步 worker，不执行直接部署；不清理或改变任何旧 Token。账户和权限使用见 docs/AUTH.md。
 

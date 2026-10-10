@@ -34,11 +34,16 @@ npx wrangler r2 bucket create cloudskill-hub
 
 ```bash
 npx wrangler secret put BOOTSTRAP_SECRET
+# 仓库外私有目录；首次配置才生成，保留备份，不要在每次构建时重建。
+node scripts/prepare-token-key.mjs --credentials-dir /YOUR/PRIVATE/DEPLOY-DIR
+npx wrangler secret bulk /YOUR/PRIVATE/DEPLOY-DIR/token-encryption.json
 npm run db:migrate
 npm run deploy
 ```
 
-统一迁移命令会执行所有尚未应用文件：`0001_initial.sql`、`0002_binary_uploads.sql`、`0003_web_auth.sql`、`0004_require_password_change.sql`、`0005_sharing_permissions.sql`，共同组成当前结构。空库不能只应用最后一个文件；不要删除、重命名或合并迁移。部署命令本身不代替数据库初始化。
+统一迁移命令会执行所有尚未应用文件：`0001_initial.sql`、`0002_binary_uploads.sql`、`0003_web_auth.sql`、`0004_require_password_change.sql`、`0005_sharing_permissions.sql`、`0006_recoverable_tokens.sql`，共同组成当前结构。空库不能只应用最后一个文件；不要删除、重命名或合并迁移。部署命令本身不代替数据库初始化。
+
+**TOKEN_ENCRYPTION_KEY 是长期令牌查看密钥，不能和一次性 BOOTSTRAP_SECRET 一起删除。** 设置前核对目标 Worker 的 Secret 列表；已存在时复用原值，不生成新值覆盖。脚本只在仓库外生成/复用文件，不访问 Cloudflare，也不打印密钥。详细恢复规则见 [TOKEN_VIEW.md](TOKEN_VIEW.md)。
 
 保存 Wrangler 实际返回的 HTTPS 地址。没有自定义域名时使用自己的 workers.dev 地址；有域名时绑定 Worker，不是把 R2 变成公共桶。
 

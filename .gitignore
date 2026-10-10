@@ -13,3 +13,6 @@ publisher-a.json
 client-b.json
 bootstrap.json
 owner.json
+
+# Long-lived token display encryption key: private deployment directory only.
+token-encryption.json

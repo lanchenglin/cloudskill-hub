@@ -66,7 +66,7 @@ D1 保存跨 isolate 共享的登录计数，而非只在某个进程内计数�
 
 新 Token 默认 90 天，显式 `expiresInDays:null` 代表永久；1–365 的整数代表定期。数据库保存过期日期或 null，不伪造很远的日期。过期/撤销检查、密码近期验证、CSRF 与首次改密门禁均保留。永久不意味着无法撤销或浏览器永久登录。
 
-服务端只存 Token 摘要。迁移 0005 增加 permission_mode=shared/all；旧记录为 legacy，原角色和项目范围不变。不再通过新签发 API 创建 client/publisher/admin。新类型不接受非空 projects，避免旧调用误以为有项目限制。
+服务端保留 Token 认证摘要，同时对新签发值保存 AES-256-GCM 加密副本，用于管理员再次查看。加密密钥不放在 D1，使用独立 Worker Secret TOKEN_ENCRYPTION_KEY。旧的哈希记录不会被倒推、重置或自动补发。迁移 0005 增加 permission_mode=shared/all；旧记录为 legacy，原角色和项目范围不变。不再通过新签发 API 创建 client/publisher/admin。新类型不接受非空 projects，避免旧调用误以为有项目限制。
 
 匿名读取使用 /api/public/* 的明确 GET 白名单及 well-known 索引，不能读取管理接口。受保护 /api/* 的无效 Bearer 不会回退为 Cookie 或匿名身份。共享 Token 读取历史版本还需要该版本发布时为 public；所有读/下载/文件/回滚路径均检查当前技能可见性。上传会话在继续上传和 finalize 时再次检查，不能因中途改私有而被旧会话重新共享。
 
@@ -108,3 +108,13 @@ npm run reset-password -- --remote --config /PRIVATE/wrangler.json --password-fi
 - Cloudflare node:crypto: https://developers.cloudflare.com/workers/runtime-apis/nodejs/crypto/
 
 这些依据不等于本项目获得独立安全认证；测试边界见 [TEST_RESULTS.md](TEST_RESULTS.md)。
+
+## 管理员再次查看 Token
+
+网页“令牌列表 → 查看 / 复制”调用 POST /api/tokens/{id}/reveal，仅已完成首次改密的网页管理员会话可用，沿用现有 CSRF、同源和5分钟敏感操作验证。两种技能修改 Token 以及旧的管理员 API Token 都不能使用此接口；匿名、公共目录也不会返回这些值。
+
+普通列表只增加 recoverable 布尔值，不返回明文、认证哈希或密文。管理员显式查看才解密一个值；响应 private/no-store，审计仅记录令牌 ID，不记录明文或密文。页面不保存到 localStorage/sessionStorage，60秒后或关闭/切页/退出时清除；晚到的网络响应不能在退出后重新显示秘密。复制到系统剪贴板的值不由网页自动撤回。
+
+已过期/撤销的新令牌可以查看原值用于核对，但不会因此恢复权限。历史 hash-only 令牌返回409 token_value_unavailable；新签发可查看，旧令牌保持不变。缺少有效密钥时禁止签发新令牌（503 token_key_unavailable），不退化为明文或仅显示一次。错误密钥/篡改密文返回503 token_decryption_failed，客户端摘要认证不依赖此密钥，因此仍可正常验证有效旧 Token。
+
+详见 [TOKEN_VIEW.md](TOKEN_VIEW.md)。本功能只解决 Hub 访问令牌再次查看，不加密 Skill 文件里另外保存的外部服务凭据，也不是端到端或零知识凭据保险库。

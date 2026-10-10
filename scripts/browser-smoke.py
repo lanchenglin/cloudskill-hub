@@ -112,6 +112,52 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             page.locator('[data-view="security"]').click()
             permanent_row=page.locator('#tokensList .row-card').filter(has_text='Shared-editing')
             permanent_row.filter(has_text='永久有效').wait_for()
+            # Refresh never contains token values; only an explicit administrator reveal returns one.
+            listed=page.request.get(creds['url']+'/api/tokens').json()
+            assert listed['tokenStorage']['configured'] is True
+            assert all(t['recoverable'] for t in listed['tokens'])
+            assert permanent['token'] not in json.dumps(listed) and finite['token'] not in json.dumps(listed)
+            assert permanent['token'] not in page.locator('body').inner_text()
+            page.context.grant_permissions(['clipboard-read','clipboard-write'],origin=creds['url'])
+            permanent_row.get_by_role('button',name='查看 / 复制',exact=True).click()
+            page.locator('#tokenRevealDialog').wait_for(state='visible')
+            assert page.locator('#tokenRevealValue').inner_text() == permanent['token']
+            page.locator('#copyTokenValue').click()
+            assert page.evaluate('navigator.clipboard.readText()') == permanent['token']
+            page.locator('#hideTokenValue').click()
+            assert page.locator('#tokenRevealValue').inner_text() == ''
+            assert page.locator('#tokenRevealDialog').is_hidden()
+            permanent_row.get_by_role('button',name='查看 / 复制',exact=True).click()
+            page.locator('#tokenRevealDialog').wait_for(state='visible')
+            page.keyboard.press('Escape')
+            assert page.locator('#tokenRevealValue').inner_text() == ''
+            # A response arriving after logout must not show its secret.
+            held=[]
+            def hold_reveal(route):
+                held.append((route,route.fetch()))
+            page.route('**/api/tokens/*/reveal',hold_reveal)
+            permanent_row.get_by_role('button',name='查看 / 复制',exact=True).click()
+            for _ in range(50):
+                if held: break
+                page.wait_for_timeout(20)
+            assert len(held) == 1
+            page.locator('#logout').click();page.locator('#auth-card').wait_for(state='visible')
+            held[0][0].fulfill(response=held[0][1]);page.unroute('**/api/tokens/*/reveal',hold_reveal)
+            page.wait_for_timeout(100)
+            assert page.locator('#tokenRevealValue').inner_text() == '' and page.locator('#tokenRevealDialog').is_hidden()
+            assert page.locator('#issuedValue').inner_text() == ''
+            page.locator('#usernameInput').fill(creds['username']);page.locator('#passwordInput').fill(creds['password'])
+            page.locator('#authBtn').click();page.locator('#dashboard').wait_for(state='visible')
+            page.locator('[data-view="security"]').click()
+            permanent_row.get_by_role('button',name='查看 / 复制',exact=True).click()
+            page.locator('#tokenRevealDialog').wait_for(state='visible')
+            assert page.locator('#tokenRevealValue').inner_text() == permanent['token']
+            assert permanent['token'] not in page.evaluate('JSON.stringify(localStorage)+JSON.stringify(sessionStorage)')
+            for width in [320,390]:
+                page.set_viewport_size({'width':width,'height':844})
+                assert page.evaluate('document.documentElement.scrollWidth') <= width+2
+            page.set_viewport_size({'width':1440,'height':1000})
+            page.locator('#hideTokenValue').click()
             assert page.request.get(creds['url']+'/api/me',headers={'Authorization':'Bearer '+permanent['token']}).status == 200
             page.once('dialog',lambda dialog: dialog.accept())
             with page.expect_response(lambda response: response.url.endswith('/api/tokens/'+permanent['id']+'/revoke')) as revoked_response:
@@ -188,7 +234,7 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             assert page.locator('#dashboard').is_hidden()
             assert not errors,errors
             browser.close()
-        print('PASS: Chromium 6–20 password boundaries/Unicode and confirmation for setup/first change/normal change; default password, mandatory first change without bootstrap proof (refresh/re-login/Escape/API rejection), HttpOnly session reload, shared/all writer token issuance, anonymous shared downloads and revocation, ZIP upload/edit/download, password change/logout, unsafe ZIP rejection and mobile layout')
+        print('PASS: Chromium token reveal/copy/hide after refresh and re-login, no secret storage/list leaks, stale reveal after logout discarded; 6–20 password boundaries/Unicode and confirmation for setup/first change/normal change; default password, mandatory first change without bootstrap proof (refresh/re-login/Escape/API rejection), HttpOnly session reload, shared/all writer token issuance, anonymous shared downloads and revocation, ZIP upload/edit/download, password change/logout, unsafe ZIP rejection and mobile layout')
     finally:
         server.terminate()
         try: server.wait(timeout=5)

@@ -4,6 +4,7 @@ import {tokenHash,randomId,slug,now} from './core.js';
 import {hashPassword,hashInitialPassword,INITIAL_ADMIN_PASSWORD,verifyPassword,validatePassword,validateUsername} from './password.js';
 import {problem} from '../public/lib/policy.js';
 import {validateTokenDays} from './token-policy.js';
+import {sealToken} from './token-vault.js';
 const one=(db,sql,...a)=>db.prepare(sql).bind(...a).first();
 const run=(db,sql,...a)=>db.prepare(sql).bind(...a).run();
 const HOURS=3600000;
@@ -108,9 +109,11 @@ export async function issueToken(env,label,role,projects=[],days=90){
   if(!Array.isArray(projects)||projects.length)throw problem('These token types are visibility-based, not project-scoped; omit projects');
   days=validateTokenDays(days);
   const token=randomId('csh_'),id=randomId('t_'),expiresAt=days===null?null:new Date(Date.now()+days*24*HOURS).toISOString();
-  const scope=role==='shared_writer'?'shared':'all';
-  await run(env.DB,`INSERT INTO access_tokens (id,label,token_hash,role,project_scope,created_at,can_publish,credential_type,expires_at,permission_mode)
-    VALUES (?,?,?,'client','[]',?,1,'api',?,?)`,id,label.trim(),await tokenHash(token),now(),expiresAt,scope);
+  const scope=role==='shared_writer'?'shared':'all',digest=await tokenHash(token);
+  // Fail before inserting anything when recoverable storage has not been configured.
+  const encrypted=await sealToken(env,id,digest,token);
+  await run(env.DB,`INSERT INTO access_tokens (id,label,token_hash,role,project_scope,created_at,can_publish,credential_type,expires_at,permission_mode,token_ciphertext)
+    VALUES (?,?,?,'client','[]',?,1,'api',?,?,?)`,id,label.trim(),digest,now(),expiresAt,scope,encrypted);
   return {id,token,role,scope,projects:[],expiresAt};
 }
 async function createAccount(request,env,body){

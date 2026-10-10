@@ -1,4 +1,4 @@
-import {createHash} from 'node:crypto';
+import {createHash,randomBytes} from 'node:crypto';
 import {readdirSync} from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
 import fs from 'node:fs/promises';
@@ -40,7 +40,7 @@ export class Bucket {
 export function fixture(){
   const db=new DatabaseSync(':memory:');
   for(const name of readdirSync(new URL('../migrations/',import.meta.url)).filter(n=>n.endsWith('.sql')).sort())db.exec(readFileSync(new URL('../migrations/'+name,import.meta.url),'utf8'));
-  const env={DB:new DbAdapter(db),BUCKET:new Bucket(),BOOTSTRAP_SECRET:'test-bootstrap-secret-with-adequate-length'};
+  const env={DB:new DbAdapter(db),BUCKET:new Bucket(),BOOTSTRAP_SECRET:'test-bootstrap-secret-with-adequate-length',TOKEN_ENCRYPTION_KEY:randomBytes(32).toString('hex')};
   return {env,db,close:()=>db.close()};
 }
 export const skill=(name='sample-skill',extra={})=>({'SKILL.md':encode64(new TextEncoder().encode(`---\nname: ${name}\ndescription: An example skill for testing integrations.\nmetadata:\n  hermes:\n    tags: [testing]\n---\n# ${name}\nUse safely.\n`)),...extra});

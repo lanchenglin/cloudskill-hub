@@ -1,4 +1,4 @@
-# CloudSkill Hub API — 当前 0.4.1
+# CloudSkill Hub API — 当前 0.4.2
 
 ## 权限模型
 
@@ -59,7 +59,7 @@ GET /.well-known/agent-skills/{skill}/{archiveDigest}.zip
 
 账号默认为 admin/lanchenglin，首次强制改密，新密码6–20字符。待改密的受保护业务请求仍返回403 `password_change_required`。登录/写操作要求 `X-CloudSkill-Request: 1`、同源；Cookie 写还须正确 `X-CSRF-Token`。`activationSecretRequired` 仅兼容返回 false；旧 bootstrapSecret 字段不再是改密授权条件。
 
-签发/撤销 Token 需最近5分钟内验证过网页密码；否则403 `reauth_required`。`all_writer` 不是管理员，不能通过任何 Token 管理/账号路由获得网站管理权。旧 `/api/bootstrap` 已关闭，返回410；无公网免验证恢复接口。
+签发/撤销/查看 Token 需最近5分钟内验证过网页密码；否则403 `reauth_required`。`all_writer` 不是管理员，不能通过任何 Token 管理/账号路由获得网站管理权。旧 `/api/bootstrap` 已关闭，返回410；无公网免验证恢复接口。
 
 ## 手动签发 Token
 
@@ -124,6 +124,19 @@ manifest包 `format:2` 的digest表示archiveDigest；历史JSON `format:1` 表�
 
 ## 数据库与错误
 
-首次统一运行0001–0005迁移。0005保留旧Token权限，增加新Token分类；历史可见性不可回溯推断，所以旧公开技能仅将已公开的最新版标为public，其他历史不自动公开。
+首次统一运行0001–0006迁移。0006增加新令牌加密副本字段，旧哈希记录保持NULL。0005保留旧Token权限，增加新Token分类；历史可见性不可回溯推断，所以旧公开技能仅将已公开的最新版标为public，其他历史不自动公开。
 
 401：无效/撤销/到期身份或匿名写；403：越权、CSRF、待改密、需重新验证；404：不存在或不可读；409：版本/状态冲突；413：大小超限；426：客户端包格式能力不足；429：现有限速；500/503：配置/后端错误。安全边界见 [AUTH](AUTH.md)，测试范围见 [TEST_RESULTS](TEST_RESULTS.md)。
+
+## 令牌再次查看（0.4.2）
+
+GET /api/tokens 的 tokens 数组增加 recoverable:boolean，外层增加 tokenStorage:{configured:boolean}。不返回 token、token_hash 或 token_ciphertext；configured 仅表示密钥格式符合要求，不代表每条历史密文都能用当前密钥解开。
+
+POST /api/tokens/{id}/reveal，JSON 请求体 `{}`。必须用网页管理员 Cookie + X-CloudSkill-Request:1 + X-CSRF-Token，遵守同源和近期验证；任何 API Bearer 不能代替网页会话。GET、不存在ID、内部web身份不可取得值。
+
+成功200：`{id,token,expiresAt,revokedAt,active}`。expiresAt:null 仍是永久；active:false 是已过期/撤销，仅展示原值，不变更授权。
+
+409 token_value_unavailable：旧记录只存哈希，无法还原，原Token不变。
+503 token_key_unavailable：运行时 TOKEN_ENCRYPTION_KEY 缺失或不是64位十六进制；新签发也会拒绝，不会生成无法再次查看的新记录。
+503 token_decryption_failed：密钥与原密文不匹配或完整性校验失败；恢复原密钥，不用生成新密钥覆盖。
+401/403：原有会话、CSRF、强制改密和近期验证限制仍适用。所有响应 private/no-store；查询列表与 /api/me 不会批量泄露密文或明文。

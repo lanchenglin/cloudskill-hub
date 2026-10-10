@@ -5,7 +5,7 @@
 [![CI](https://github.com/lanchenglin/cloudskill-hub/actions/workflows/ci.yml/badge.svg)](https://github.com/lanchenglin/cloudskill-hub/actions/workflows/ci.yml)
 [![MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-当前完整版本 **0.4.1**，开发使用 `main`，发布使用 CI 通过后自动同步的 `worker`；不需要安装中间版本。Workers + D1 + 私有 R2，无需独立 VPS。尚未代替用户完成生产 Cloudflare 部署，本地/CI 结果不代表已经上线。
+当前完整版本 **0.4.2**，开发使用 `main`，发布使用 CI 通过后自动同步的 `worker`；不需要安装中间版本。Workers + D1 + 私有 R2，无需独立 VPS。尚未代替用户完成生产 Cloudflare 部署，本地/CI 结果不代表已经上线。
 
 ## 权限只有这三种使用方式
 
@@ -19,6 +19,10 @@
 这里只需签发**两种 Token**，没有“公共只读 Token”的必要，也不再按 A/B/C 设备或项目分配 Token 类型。项目只用于技能分类。备注可以自定义，任何一套 Hermes / Claude / CLI 使用哪个 Token，就获得该 Token 的权限；它不与设备字母绑定。
 
 **Token 由你自己在网页“访问权限”里签发。** 选择“修改共享技能”或“修改全部技能”，再选择 30 / 90 / 365 天或永久有效；不主动选择时仍默认 90 天。永久表示不自动到期，仍可随时单独撤销。修改网页密码不会自动撤销这些 Token。
+
+**令牌以后也可以查看。** 登录后台进入“访问权限 → 令牌列表 → 查看 / 复制”，刷新或重新登录不影响再次查看。列表默认不显示明文；展开后可以复制、手动隐藏，60 秒后自动隐藏。
+
+新令牌保留认证哈希和 AES-256-GCM 加密副本，密钥使用独立的长期 Worker Secret `TOKEN_ENCRYPTION_KEY`，不是把明文存进数据库或公开 Git。首次部署按说明生成并保存密钥，日常查看不需要手工输入密钥。旧版本只存哈希的 Token 无法还原，仍保持原权限和有效期；需要可查看的新令牌时由你自己签发。详情见 [令牌查看与密钥维护](docs/TOKEN_VIEW.md)。
 
 初始化和 AI 部署脚本**不会自动签发任何 Token**，也不生成 publisher-a.json / client-b.json。原有旧 Token 只保留原权限，不会因升级自动变成“修改全部”。
 
@@ -97,7 +101,7 @@ npx wrangler d1 create cloudskill_hub --no-update-config
 npx wrangler r2 bucket create cloudskill-hub
 ```
 
-核对实际账号及资源，填写 D1 ID，私有 R2 保持私有；安全设置首次创建账号用的 BOOTSTRAP_SECRET，然后执行 `npm run db:migrate`、`npm run deploy`。**空库需要全部 0001–0005 迁移**，它们共同组成当前程序，不是安装多个版本。
+核对实际账号及资源，填写 D1 ID，私有 R2 保持私有；安全设置首次创建账号用的 BOOTSTRAP_SECRET 和长期保存的 TOKEN_ENCRYPTION_KEY，然后执行 `npm run db:migrate`、`npm run deploy`。**空库需要全部 0001–0006 迁移**，它们共同组成当前程序，不是安装多个版本。
 
 初始网页账号 **admin**，密码 **lanchenglin**。首次登录必须先改成 6–20 字符的新密码，不能跳过，**改密不需要额外 Secret**。初始化脚本退出码 2 表示等待本人改密，不是部署失败。已有账号不会因升级重置；初始密码公开，部署后尽快完成改密。
 

@@ -4,6 +4,7 @@ import {capabilities,startUpload,uploadStatus,uploadArchive,finalizeUpload,cance
 import {fileBody,versionPayload,readPackage} from './packages.js';
 import { slug, normalizedFiles, decode64, frontmatter, fileDigest, tokenHash, randomId, sha256, now, invalid } from './core.js';
 import { zipFiles } from './zip.js';
+import {openToken,tokenKeyConfigured,tokenVaultErrorCode} from './token-vault.js';
 
 const encoder = new TextEncoder();
 const commonHeaders = { 'X-Content-Type-Options':'nosniff', 'Referrer-Policy':'no-referrer', 'X-Frame-Options':'DENY' };
@@ -128,7 +129,7 @@ async function wellKnown(req,env,u){
 export async function handler(request,env){
   try{
     const url=new URL(request.url),method=request.method.toUpperCase();let path=url.pathname;
-    if(method==='GET'&&path==='/healthz')return json({ok:true,app:'cloudskill-hub',version:'0.4.1'},200,true);
+    if(method==='GET'&&path==='/healthz')return json({ok:true,app:'cloudskill-hub',version:'0.4.2'},200,true);
     const authResponse=await authRoutes(request,env,readJson,json);
     if(authResponse)return authResponse;
     if(method==='GET'&&path.startsWith('/.well-known/'))return await wellKnown(request,env);
@@ -179,11 +180,27 @@ export async function handler(request,env){
     }
     if(method==='GET'&&(path==='/api/catalog'||path==='/api/skills'))return json({skills:await getCatalog(env,u,url.searchParams.get('project'))});
     if(method==='GET'&&path==='/api/tokens'){
-      admin(u);const rows=await queryAll(env.DB,`SELECT id,label,role,can_publish,permission_mode,project_scope,created_at,revoked_at,expires_at,last_used_at FROM access_tokens WHERE credential_type='api' ORDER BY created_at DESC`);return json({tokens:rows.map(r=>({...r,role:tokenRole(r)}))});
+      admin(u);const rows=await queryAll(env.DB,`SELECT id,label,role,can_publish,permission_mode,project_scope,created_at,revoked_at,expires_at,last_used_at,CASE WHEN token_ciphertext IS NOT NULL THEN 1 ELSE 0 END AS recoverable FROM access_tokens WHERE credential_type='api' ORDER BY created_at DESC`);
+      return json({tokens:rows.map(r=>({...r,role:tokenRole(r),recoverable:Boolean(r.recoverable)})),tokenStorage:{configured:tokenKeyConfigured(env)}});
     }
     if(method==='POST'&&path==='/api/tokens'){
       recent(u);const b=await readJson(request,4096);const token=await issueToken(env,b.label,b.role,b.projects??[],b.expiresInDays);
       await audit(env,u.label,'issue_token',{role:b.role,label:b.label});return json(token,201);
+    }
+    const reveal=/^\/api\/tokens\/([a-zA-Z0-9_-]+)\/reveal$/.exec(path);
+    if(reveal&&method==='POST'){
+      admin(u);
+      // API credentials, including retained legacy API-admin tokens, cannot reveal secrets.
+      if(u.authType!=='session')fail('Web administrator session required',403);
+      recent(u);await readJson(request,1024);
+      const row=await queryOne(env.DB,"SELECT id,token_hash,token_ciphertext,expires_at,revoked_at FROM access_tokens WHERE id=? AND credential_type='api'",reveal[1]);
+      if(!row)fail('Token not found',404);
+      if(row.token_ciphertext===null)fail('token_value_unavailable',409);
+      const token=await openToken(env,row.id,row.token_hash,row.token_ciphertext);
+      await audit(env,u.label,'reveal_token',{id:row.id});
+      // Viewing never changes validity. Retained expired/revoked values are for inspection only.
+      return json({id:row.id,token,expiresAt:row.expires_at,revokedAt:row.revoked_at,
+        active:!row.revoked_at&&(row.expires_at===null||Date.parse(row.expires_at)>Date.now())});
     }
     let m=/^\/api\/tokens\/([a-zA-Z0-9_-]+)\/revoke$/.exec(path);
     if(m&&method==='POST'){
@@ -235,7 +252,7 @@ export async function handler(request,env){
   }catch(e){
     const status=Number(e.status)|| (String(e.message).includes('UNIQUE constraint')?409:500);
     if(status>=500)console.error('cloudskill-hub error',e);
-    const response=json({error:status>=500?'Internal server error':e.message},status);
+    const response=json({error:status>=500?(tokenVaultErrorCode(e)||'Internal server error'):e.message},status);
     if(e.retryAfter)response.headers.set('Retry-After',String(e.retryAfter));
     return response;
   }
