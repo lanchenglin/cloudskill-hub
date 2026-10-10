@@ -55,7 +55,7 @@ export async function main(args=process.argv.slice(2)){
     const text=await fs.readFile(filename,'utf8');
     try{const data=JSON.parse(text);password=typeof data==='object'&&data?data.password:data;}catch{password=text.replace(/\r?\n$/,'');}
   }else{
-    password=await promptSecret('New administrator password (15–128 characters): ');
+    password=await promptSecret('New administrator password (6–20 characters): ');
     if(password!==await promptSecret('Repeat new password: '))throw Error('Passwords do not match');
   }
   validatePassword(password);

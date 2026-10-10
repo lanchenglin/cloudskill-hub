@@ -5,6 +5,19 @@ from pathlib import Path
 import json, os, shutil, subprocess, tempfile, time, zipfile
 from playwright.sync_api import sync_playwright
 
+def check_password_bounds(page, first, again, form):
+    # Same browser rule as the backend; include astral characters and preserve pasted text.
+    for value in ['abcde', 'x'*21, '🔑'*5]:
+        page.locator(first).fill(value); page.locator(again).fill(value)
+        assert page.locator(first).input_value() == value
+        assert not page.locator(form).evaluate('(el) => el.checkValidity()')
+    for value in ['abcdef', 'x'*20, '🔑'*20, '中文密码测试']:
+        page.locator(first).fill(value); page.locator(again).fill(value)
+        assert page.locator(first).input_value() == value
+        assert page.locator(form).evaluate('(el) => el.checkValidity()')
+    page.locator(again).fill('other6')
+    assert not page.locator(form).evaluate('(el) => el.checkValidity()')
+
 root=Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWSER_TEMP_DIR')) as td:
     tmp=Path(td); auth=tmp/'auth.json'
@@ -37,6 +50,8 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             page.locator('#setupSecret').fill(creds['bootstrapSecret'])
             page.locator('#setupUsername').fill(creds['username'])
             assert page.locator('#setupPassword').input_value() == 'lanchenglin'
+            check_password_bounds(page,'#setupPassword','#setupPasswordAgain','#setupForm')
+            page.locator('#setupPassword').fill('lanchenglin');page.locator('#setupPasswordAgain').fill('lanchenglin')
             page.locator('#setupBtn').click()
             page.locator('#forcePasswordPanel').wait_for(state='visible')
             assert page.locator('#dashboard').is_hidden()
@@ -56,6 +71,7 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             page.locator('#usernameInput').fill(creds['username']);page.locator('#passwordInput').fill('lanchenglin')
             page.locator('#authBtn').click();page.locator('#forcePasswordPanel').wait_for(state='visible')
             page.locator('#forceCurrentPassword').fill('lanchenglin')
+            check_password_bounds(page,'#forceNewPassword','#forceNewPasswordAgain','#forcePasswordForm')
             page.locator('#forceNewPassword').fill(creds['password']);page.locator('#forceNewPasswordAgain').fill(creds['password'])
             with page.expect_request(lambda req: req.url.endswith('/api/auth/password') and req.method == 'POST') as changed_request:
                 page.locator('#forcePasswordSubmit').click()
@@ -161,7 +177,8 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             page.set_viewport_size({'width':1440,'height':1000})
             page.locator('[data-view="security"]').click()
             page.locator('#currentPassword').fill(creds['password'])
-            changed='Browser changed test password 67890'
+            check_password_bounds(page,'#newPassword','#newPasswordAgain','#passwordForm')
+            changed='🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑'
             page.locator('#newPassword').fill(changed);page.locator('#newPasswordAgain').fill(changed)
             page.locator('#passwordForm button[type="submit"]').click();page.locator('#auth-card').wait_for(state='visible')
             page.locator('#usernameInput').fill(creds['username']);page.locator('#passwordInput').fill(changed)
@@ -171,7 +188,7 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             assert page.locator('#dashboard').is_hidden()
             assert not errors,errors
             browser.close()
-        print('PASS: Chromium default password, mandatory first change without bootstrap proof (refresh/re-login/Escape/API rejection), HttpOnly session reload, shared/all writer token issuance, anonymous shared downloads and revocation, ZIP upload/edit/download, password change/logout, unsafe ZIP rejection and mobile layout')
+        print('PASS: Chromium 6–20 password boundaries/Unicode and confirmation for setup/first change/normal change; default password, mandatory first change without bootstrap proof (refresh/re-login/Escape/API rejection), HttpOnly session reload, shared/all writer token issuance, anonymous shared downloads and revocation, ZIP upload/edit/download, password change/logout, unsafe ZIP rejection and mobile layout')
     finally:
         server.terminate()
         try: server.wait(timeout=5)

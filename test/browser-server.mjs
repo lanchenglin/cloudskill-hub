@@ -20,7 +20,7 @@ const server=http.createServer(async(req,res)=>{
 });
 server.listen(0,'127.0.0.1',async()=>{
   const url=`http://127.0.0.1:${server.address().port}`;
-  if(process.env.BROWSER_AUTH_FILE)await writeFile(process.env.BROWSER_AUTH_FILE,JSON.stringify({url,username:'browser-admin',password:'Browser isolated test password 12345',bootstrapSecret:f.env.BOOTSTRAP_SECRET}),{mode:0o600});
+  if(process.env.BROWSER_AUTH_FILE)await writeFile(process.env.BROWSER_AUTH_FILE,JSON.stringify({url,username:'browser-admin',password:'abcdef',bootstrapSecret:f.env.BOOTSTRAP_SECRET}),{mode:0o600});
   console.log('Browser test fixture:',url);
 });
 process.on('SIGTERM',()=>server.close(()=>{f.close();process.exit();}));

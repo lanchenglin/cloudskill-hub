@@ -45,8 +45,8 @@
           <label for="setupSecret">首次初始化 Secret</label><input id="setupSecret" type="password" autocomplete="off" />
           <label id="legacyTokenLabel" for="legacyAdminToken" hidden>原管理员 Token（仅用于首次转换）</label><input id="legacyAdminToken" type="password" autocomplete="off" hidden />
           <label for="setupUsername">管理员账号</label><input id="setupUsername" value="admin" autocomplete="username" minlength="3" maxlength="64" required />
-          <label for="setupPassword">初始密码（默认 lanchenglin，自定义须 15–128 字符）</label><input id="setupPassword" value="lanchenglin" type="password" autocomplete="new-password" maxlength="256" required />
-          <label for="setupPasswordAgain">再次输入密码</label><input id="setupPasswordAgain" value="lanchenglin" type="password" autocomplete="new-password" required maxlength="256" />
+          <label for="setupPassword">初始密码（默认 lanchenglin，自定义须 6–20 字符）</label><input id="setupPassword" value="lanchenglin" type="password" autocomplete="new-password" maxlength="40" required minlength="6" />
+          <label for="setupPasswordAgain">再次输入密码</label><input id="setupPasswordAgain" value="lanchenglin" type="password" autocomplete="new-password" required maxlength="40" minlength="6" />
           <button id="setupBtn" type="submit" class="secondary">创建管理员账号</button>
         </form>
       </details>
@@ -57,8 +57,8 @@
       <p>此步骤不能跳过。只需填写当前密码和新密码，不需要初始化 Secret。修改完成前不能查看技能、管理项目、上传或签发 Token；刷新和重新登录不会解除限制。</p>
       <form id="forcePasswordForm" class="auth-form">
         <label for="forceCurrentPassword">当前初始密码</label><input id="forceCurrentPassword" type="password" autocomplete="current-password" required maxlength="256" />
-        <label for="forceNewPassword">新密码（15–128 字符）</label><input id="forceNewPassword" type="password" autocomplete="new-password" required minlength="15" maxlength="256" />
-        <label for="forceNewPasswordAgain">确认新密码</label><input id="forceNewPasswordAgain" type="password" autocomplete="new-password" required maxlength="256" />
+        <label for="forceNewPassword">新密码（6–20 字符）</label><input id="forceNewPassword" type="password" autocomplete="new-password" required minlength="6" maxlength="40" />
+        <label for="forceNewPasswordAgain">确认新密码</label><input id="forceNewPasswordAgain" type="password" autocomplete="new-password" required maxlength="40" minlength="6" />
         <p id="forcePasswordError" role="alert"></p>
         <button id="forcePasswordSubmit" type="submit" class="primary">修改密码并重新登录</button>
         <button id="forceLogout" type="button" class="secondary">退出登录</button>
@@ -103,7 +103,7 @@ cloudskill check</pre></div></section>
         <div class="two-col"><form id="tokenForm" class="panel"><h3>签发访问令牌</h3><label>令牌备注</label><input id="tokenLabel" required maxlength="80" placeholder="例如 WSL-Dev / Windows-Codex" /><label>角色</label><select id="tokenRole"><option value="shared_writer">修改共享技能（读取、推送、更新共享区）</option><option value="all_writer">修改全部技能（共享与私有）</option></select><label for="tokenDays">有效期</label><select id="tokenDays"><option value="30">30 天</option><option value="90" selected>90 天</option><option value="365">365 天</option><option value="never">永久有效（直到手动撤销）</option></select><p class="muted">永久令牌不设到期时间；不再使用时可在下方手动撤销。此设置不改变网页登录会话的有效期。</p><p class="muted">不绑定 A/B/C 设备，也不用逐个勾选项目。全部修改 Token 能读取私有技能，请只交给可信工具；两种 Token 都不能管理账号或其他 Token。</p><button type="submit" class="primary wide">生成令牌 →</button><div id="issuedToken" class="issued" hidden><b>请立即复制，此后无法再次查看：</b><code id="issuedValue"></code><button type="button" class="secondary" id="copyIssued">复制</button></div></form>
         <form id="projectForm" class="panel"><h3>新建项目分类</h3><label>项目英文 ID（不可更改）</label><input id="newProjectSlug" pattern="[a-z0-9]+(-[a-z0-9]+)*" placeholder="devops" required maxlength="64"/><label>展示名称</label><input id="newProjectTitle" placeholder="运维自动化" required maxlength="100"/><button class="secondary wide" type="submit">＋ 创建项目</button><p>建议创建 devops、coding、video、automation 等项目，项目仅用于分类；Token 按共享或全部技能划分权限。</p></form></div>
         <div class="panel"><h3>令牌列表</h3><div id="tokensList" class="rows"></div><button id="revokeAllTokens" class="secondary" type="button">撤销全部客户端 / API 令牌</button><p class="muted">此操作会中断所有客户端后续访问，但不会退出当前网页。修改密码不会自动执行此操作。</p></div>
-        <form id="passwordForm" class="panel"><h3>修改管理员密码</h3><p>修改后所有浏览器会话失效；客户端 Token 保持有效。怀疑凭据泄露时，另行撤销 Token。</p><label for="currentPassword">当前密码</label><input id="currentPassword" type="password" autocomplete="current-password" required maxlength="256" /><label for="newPassword">新密码（15–128 字符）</label><input id="newPassword" type="password" autocomplete="new-password" minlength="15" maxlength="256" required /><label for="newPasswordAgain">确认新密码</label><input id="newPasswordAgain" type="password" autocomplete="new-password" required maxlength="256" /><button class="primary" type="submit">修改密码并重新登录</button></form>
+        <form id="passwordForm" class="panel"><h3>修改管理员密码</h3><p>修改后所有浏览器会话失效；客户端 Token 保持有效。怀疑凭据泄露时，另行撤销 Token。</p><label for="currentPassword">当前密码</label><input id="currentPassword" type="password" autocomplete="current-password" required maxlength="256" /><label for="newPassword">新密码（6–20 字符）</label><input id="newPassword" type="password" autocomplete="new-password" minlength="6" maxlength="40" required /><label for="newPasswordAgain">确认新密码</label><input id="newPasswordAgain" type="password" autocomplete="new-password" required maxlength="40" minlength="6" /><button class="primary" type="submit">修改密码并重新登录</button></form>
       </section>
     </div>
   </main>

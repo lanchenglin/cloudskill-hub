@@ -7,8 +7,8 @@ import {hashPassword,verifyPassword,validatePassword,validateUsername,INITIAL_AD
 import {SESSION_IDLE,SESSION_TTL,REAUTH_TTL,cleanupAuth} from '../src/auth.js';
 import {tokenHash} from '../src/core.js';
 import {pack} from '../public/lib/archive.js';
-const PASSWORD='A long private passphrase for tests 123';
-const NEXT_PASSWORD='A different private passphrase for tests 456';
+const PASSWORD='Test login 123';
+const NEXT_PASSWORD='Test changed 456';
 async function web(env,path,method='GET',body,session,headers={}){
   const request=new Request('https://hub.example'+path,{method,headers:{
     'X-CloudSkill-Request':'1',Origin:'https://hub.example',
@@ -38,8 +38,8 @@ async function issue(env,session,role='all_writer',projects=[],extra={}){
 
 test('passwords use random salts, a fixed memory-hard profile, Unicode and no truncation',async()=>{
   assert.equal(validateUsername(' My.Admin '),'my.admin');assert.throws(()=>validateUsername('x'));
-  assert.throws(()=>validatePassword('12345678'));assert.throws(()=>validatePassword('x'.repeat(129)));
-  const value='中文口令 用足够长的句子也可以 🔑🔑🔑';validatePassword(value);
+  assert.throws(()=>validatePassword('12345'));assert.throws(()=>validatePassword('x'.repeat(21)));
+  const value='中文口令测试 🔑🔑';validatePassword(value);
   const a=await hashPassword(value),b=await hashPassword(value);
   assert.match(a,/^scrypt\$16384\$8\$5\$/);assert.notEqual(a,b);assert.ok(!a.includes(value));
   assert.equal(await verifyPassword(value,a),true);assert.equal(await verifyPassword(value+' ',a),false);

@@ -1,4 +1,4 @@
-# CloudSkill Hub API — 当前 0.4.0
+# CloudSkill Hub API — 当前 0.4.1
 
 ## 权限模型
 
@@ -57,7 +57,7 @@ GET /.well-known/agent-skills/{skill}/{archiveDigest}.zip
 | POST | `/api/auth/reauth` | 当前密码确认，续接敏感操作验证 |
 | POST | `/api/auth/revoke-all-tokens` | 明确确认 `confirm: "revoke-all-api-tokens"` |
 
-账号默认为 admin/lanchenglin，首次强制改密，新密码15–128字符。待改密的受保护业务请求仍返回403 `password_change_required`。登录/写操作要求 `X-CloudSkill-Request: 1`、同源；Cookie 写还须正确 `X-CSRF-Token`。`activationSecretRequired` 仅兼容返回 false；旧 bootstrapSecret 字段不再是改密授权条件。
+账号默认为 admin/lanchenglin，首次强制改密，新密码6–20字符。待改密的受保护业务请求仍返回403 `password_change_required`。登录/写操作要求 `X-CloudSkill-Request: 1`、同源；Cookie 写还须正确 `X-CSRF-Token`。`activationSecretRequired` 仅兼容返回 false；旧 bootstrapSecret 字段不再是改密授权条件。
 
 签发/撤销 Token 需最近5分钟内验证过网页密码；否则403 `reauth_required`。`all_writer` 不是管理员，不能通过任何 Token 管理/账号路由获得网站管理权。旧 `/api/bootstrap` 已关闭，返回410；无公网免验证恢复接口。
 

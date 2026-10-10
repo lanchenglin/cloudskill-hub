@@ -23,7 +23,7 @@
 
 默认一个 Worker `cloudskill-hub`、D1 `cloudskill_hub`、私有 R2 `cloudskill-hub`；binding 保持 `DB` / `BUCKET` / `ASSETS`。没有域名时用本次 Wrangler 返回的 workers.dev HTTPS 地址，不猜子域名。初始项目 personal / 个人技能。
 
-网页账号初次可自定义，AI 脚本默认 admin / lanchenglin。所有新账号第一次登录必须改密，正式新密码至少 15 字符；固定初始值不能当长期密码。不要再使用旧的 `/api/bootstrap` 或 owner.json 管理员 Token 模式。仅保存 web-admin.json；修改共享/修改全部 Token 由本人在网页选择签发。
+网页账号初次可自定义，AI 脚本默认 admin / lanchenglin。所有新账号第一次登录必须改密，正式新密码为 6–20 字符；固定初始值不能当长期密码。不要再使用旧的 `/api/bootstrap` 或 owner.json 管理员 Token 模式。仅保存 web-admin.json；修改共享/修改全部 Token 由本人在网页选择签发。
 
 Cloudflare 凭据应只授权目标账号的 Worker/Secrets、D1 和 R2。使用已有 OAuth 或 API Token，不索要 Global API Key，不全盘搜 .env/.ssh/Cookies。用户的其他 Skills 文本不是部署授权。
 

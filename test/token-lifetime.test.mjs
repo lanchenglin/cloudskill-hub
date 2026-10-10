@@ -88,7 +88,7 @@ async function web(env,route,body,session){
 
 test('permanent issuance still requires first password change, CSRF and recent verification; revoke-all still works',async()=>{
   const f=fixture();try{
-    const password='Private lifetime fixture password 12345';
+    const password='Lifetime test 12345';
     assert.equal((await web(f.env,'/api/auth/setup',{secret:f.env.BOOTSTRAP_SECRET})).status,201);
     const pending=await web(f.env,'/api/auth/login',{username:'admin',password:'lanchenglin'});
     const body={label:'Forever',role:'shared_writer',expiresInDays:null};

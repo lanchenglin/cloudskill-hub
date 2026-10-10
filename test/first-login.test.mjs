@@ -8,7 +8,7 @@ import {handler} from '../src/index.js';
 import {INITIAL_ADMIN_PASSWORD,hashInitialPassword,hashPassword,validatePassword,verifyPassword} from '../src/password.js';
 import {issueToken} from '../src/auth.js';
 import {recoverySql} from '../scripts/reset-password.mjs';
-const NEXT='A new private passphrase for first login 2026';
+const NEXT='First changed 2026';
 async function web(env,route,body,s,method=body===undefined?'GET':'POST',extra={}){
   const res=await handler(new Request('https://hub.example'+route,{method,
     headers:{Origin:'https://hub.example','X-CloudSkill-Request':'1',
@@ -25,11 +25,11 @@ async function initial(env,extra={}){
 }
 const change=(env,s,extra={})=>web(env,'/api/auth/password',{currentPassword:INITIAL_ADMIN_PASSWORD,newPassword:NEXT,...extra},s);
 
-test('default is exactly lanchenglin; password exception exists only in account initialization',async()=>{
+test('default is exactly lanchenglin; only initial setup may use it as a new password',async()=>{
   assert.equal(INITIAL_ADMIN_PASSWORD,'lanchenglin');
-  assert.throws(()=>validatePassword(INITIAL_ADMIN_PASSWORD),/15/);
-  await assert.rejects(hashPassword(INITIAL_ADMIN_PASSWORD),/15/);
-  await assert.rejects(hashInitialPassword('anotherweak'),/15/);
+  assert.equal(validatePassword(INITIAL_ADMIN_PASSWORD),INITIAL_ADMIN_PASSWORD);
+  await assert.rejects(hashPassword(INITIAL_ADMIN_PASSWORD),/initial password/);
+  await assert.rejects(hashInitialPassword('short'),/6–20/);
   const a=await hashInitialPassword(),b=await hashInitialPassword();
   assert.notEqual(a,b);assert.ok(!a.includes(INITIAL_ADMIN_PASSWORD));
   assert.ok(await verifyPassword(INITIAL_ADMIN_PASSWORD,a));
@@ -147,14 +147,14 @@ test('refresh, second login and logout cannot clear the persisted requirement; a
     assert.equal(second.data.mustChangePassword,true);assert.equal(third.data.mustChangePassword,true);
     assert.equal((await change(f.env,second)).status,200);
     assert.equal((await web(f.env,'/api/auth/session',undefined,third)).status,401);
-    assert.equal((await change(f.env,third,{newPassword:'Unwanted second account takeover password'})).status,401);
+    assert.equal((await change(f.env,third,{newPassword:'Not accepted 12345'})).status,401);
     assert.ok(await verifyPassword(NEXT,f.db.prepare('SELECT password_hash FROM web_admin').get().password_hash));
   }finally{f.close();}
 });
 
 test('custom strong setup also requires a different password and cannot clear the flag in the setup payload',async()=>{
   const f=fixture();try{
-    const password='Custom temporary setup passphrase 12345';
+    const password='Custom initial 12345';
     const s=await initial(f.env,{password,mustChangePassword:false});
     assert.equal(s.data.mustChangePassword,true);assert.equal(s.data.activationSecretRequired,false);
     assert.equal((await change(f.env,s,{currentPassword:password,newPassword:password})).status,400);

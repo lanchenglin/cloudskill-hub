@@ -5,7 +5,12 @@ import path from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {validatePassword,validateUsername,INITIAL_ADMIN_PASSWORD} from '../src/password.js';
 import {hubOrigin} from '../cli/manager.mjs';
-function initialPassword(value){if(value!==INITIAL_ADMIN_PASSWORD)validatePassword(value);return value;}
+function accountPassword(value,existing=false){
+  if(!existing)return validatePassword(value);
+  // Login compatibility only: do not reject old saved credentials under the new-password policy.
+  if(typeof value!=='string'||![...value].length||[...value].length>128)throw Error('Invalid saved account password');
+  return value;
+}
 const root=fileURLToPath(new URL('../',import.meta.url));
 async function read(file){
   try{const stat=await fs.lstat(file);if(!stat.isFile()||stat.isSymbolicLink()||stat.size>16384)throw Error('Credential must be a small regular file');return JSON.parse(await fs.readFile(file,'utf8'));}
@@ -55,7 +60,7 @@ export async function initialize(options){
       outside(options.passwordFile);supplied=await read(path.resolve(options.passwordFile));
       if(!supplied||typeof supplied.password!=='string')throw Error('Provided password file is missing or invalid');
       if(supplied.url&&supplied.url!==url)throw Error('Provided account belongs to a different Hub');
-      initialPassword(supplied.password);
+      accountPassword(supplied.password,status.initialized);
     }
     if(account&&supplied){
       if(account.url!==url)throw Error('Saved web account belongs to a different Hub');
@@ -65,13 +70,13 @@ export async function initialize(options){
     if(!account){
       if(status.initialized&&!supplied)throw Error('Existing administrator requires its saved/provided password; bootstrap cannot reset it');
       const username=validateUsername(options.username||supplied?.username||'admin');
-      const password=supplied?.password??INITIAL_ADMIN_PASSWORD;initialPassword(password);
+      const password=supplied?.password??INITIAL_ADMIN_PASSWORD;accountPassword(password,status.initialized);
       account={url,username,password};
       // Persist generated credentials before creating the account so a lost HTTP response is recoverable.
       await save(paths.admin,account);
     }
     if(account.url!==url)throw Error('Saved web account belongs to a different Hub');
-    validateUsername(account.username);initialPassword(account.password);
+    validateUsername(account.username);accountPassword(account.password,status.initialized);
     if(!status.initialized){
       let token,secret;
       if(status.legacyConversion){

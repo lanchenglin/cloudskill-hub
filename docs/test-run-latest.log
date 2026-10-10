@@ -1,7 +1,11 @@
-CloudSkill Hub 0.4.0
+CloudSkill Hub 0.4.1
 Index of actual local verification, not a raw execution log.
-Node 24.18.1: npm run check, 84 passed, 0 failed.
+Node 24.18.1: npm run check, 88 passed, 0 failed.
 Native local workerd/D1/R2: 0001-0005 migrations, shared/all permissions, anonymous binary install, private 7 MiB upload, recovery passed.
 Chromium: two manual Token choices, permanent/finite and revoke, public browse/download, first password change, ZIP and mobile layout passed.
 Actual CLI: public connect/install/update without credentials, skipping prior private installs passed.
 Production deployment: NOT performed. CI: check this exact commit.
+
+Password policy: 6–20 Unicode code points. Four new boundary/HTTP/recovery/legacy-login regression tests passed.
+Browser: setup, forced change and ordinary change boundary + matching checks passed.
+Native local Worker: 6-character activation/recovery and 20-character password change passed.

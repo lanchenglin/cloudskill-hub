@@ -5,7 +5,7 @@
 [![CI](https://github.com/lanchenglin/cloudskill-hub/actions/workflows/ci.yml/badge.svg)](https://github.com/lanchenglin/cloudskill-hub/actions/workflows/ci.yml)
 [![MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-当前完整版本 **0.4.0**，直接使用 `main`；不需要安装中间版本。Workers + D1 + 私有 R2，无需独立 VPS。尚未代替用户完成生产 Cloudflare 部署，本地/CI 结果不代表已经上线。
+当前完整版本 **0.4.1**，直接使用 `main`；不需要安装中间版本。Workers + D1 + 私有 R2，无需独立 VPS。尚未代替用户完成生产 Cloudflare 部署，本地/CI 结果不代表已经上线。
 
 ## 权限只有这三种使用方式
 
@@ -93,7 +93,7 @@ npx wrangler r2 bucket create cloudskill-hub
 
 核对实际账号及资源，填写 D1 ID，私有 R2 保持私有；安全设置首次创建账号用的 BOOTSTRAP_SECRET，然后执行 `npm run db:migrate`、`npm run deploy`。**空库需要全部 0001–0005 迁移**，它们共同组成当前程序，不是安装多个版本。
 
-初始网页账号 **admin**，密码 **lanchenglin**。首次登录必须先改成 15–128 字符的新密码，不能跳过，**改密不需要额外 Secret**。初始化脚本退出码 2 表示等待本人改密，不是部署失败。已有账号不会因升级重置；初始密码公开，部署后尽快完成改密。
+初始网页账号 **admin**，密码 **lanchenglin**。首次登录必须先改成 6–20 字符的新密码，不能跳过，**改密不需要额外 Secret**。初始化脚本退出码 2 表示等待本人改密，不是部署失败。已有账号不会因升级重置；初始密码公开，部署后尽快完成改密。
 
 完成改密后，在网页创建分类和自行签发 Token；只拉取共享技能的环境不用签发。真实部署、真实 Agent 发现和执行应分别验收。当前个人自用，不进行性能扩展，也不自动启用 GitHub 部署。
 

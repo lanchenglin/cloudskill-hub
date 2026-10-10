@@ -39,7 +39,7 @@ try{
     if(response.headers.has('set-cookie'))cookie=response.headers.get('set-cookie').split(';')[0];
     if(data.csrfToken)csrf=data.csrfToken;return data;
   }
-  const password='Native isolated test password 12345';
+  const password='native';
   await api('/api/auth/setup','POST',{secret:config.vars.BOOTSTRAP_SECRET,username:'native-admin'});
   const initial=await api('/api/auth/login','POST',{username:'native-admin',password:'lanchenglin'});
   assert.equal(initial.mustChangePassword,true);
@@ -74,19 +74,19 @@ try{
   const anonymous=await install({url,token:null},'devops','native-shared',['hermes']);assert.equal(anonymous[0].status,'installed');
   assert.equal((await fetch(url+'/api/public/projects/devops/skills/native-test/download')).status,404);
   await api('/api/uploads/cleanup','POST',{});
-  await api('/api/auth/password','POST',{currentPassword:password,newPassword:'Native changed test password 67890'});
+  await api('/api/auth/password','POST',{currentPassword:password,newPassword:'Native changed 67890'});
   assert.equal((await fetch(url+'/api/auth/session',{headers:{Cookie:cookie}})).status,401);
   assert.equal((await api('/api/me','GET',null,token)).role,'shared_writer');
-  await api('/api/auth/login','POST',{username:'native-admin',password:'Native changed test password 67890'});
+  await api('/api/auth/login','POST',{username:'native-admin',password:'Native changed 67890'});
   await api('/api/auth/logout','POST',{});
   const recoveryFile=path.join(temp,'recovery-password.json');
-  await fs.writeFile(recoveryFile,JSON.stringify({password:'Native recovered test password 24680'}),{mode:0o600});
+  await fs.writeFile(recoveryFile,JSON.stringify({password:'reset6'}),{mode:0o600});
   const recovery=spawnSync(process.execPath,[path.join(root,'scripts/reset-password.mjs'),'--local','--config',cfg,'--persist-to',temp,'--password-file',recoveryFile],{cwd:root,env,encoding:'utf8',timeout:60000});
   if(recovery.status!==0)throw Error('Native local recovery CLI failed: '+recovery.stderr);
-  assert.ok(!recovery.stdout.includes('Native recovered test password'));
-  await api('/api/auth/login','POST',{username:'native-admin',password:'Native recovered test password 24680'});
+  assert.ok(!recovery.stdout.includes('reset6'));
+  await api('/api/auth/login','POST',{username:'native-admin',password:'reset6'});
   await api('/api/auth/logout','POST',{});
-  console.log('PASS: native workerd scrypt, default login/forced activation/rotation/logout/recovery CLI, shared/all tokens + anonymous binary install + independent revocation, D1 migrations, 7 MiB R2 upload, 3-agent install, idempotence and cleanup');
+  console.log('PASS: native workerd 6-character first password/recovery and 20-character normal change; scrypt, default login/forced activation/rotation/logout/recovery CLI, shared/all tokens + anonymous binary install + independent revocation, D1 migrations, 7 MiB R2 upload, 3-agent install, idempotence and cleanup');
 }catch(error){console.error(logs);throw error;}
 finally{
   if(child&&child.exitCode===null){try{process.platform==='win32'?child.kill():process.kill(-child.pid,'SIGTERM');}catch{}await new Promise(r=>{if(child.exitCode!==null)return r();const t=setTimeout(r,5000);child.once('exit',()=>{clearTimeout(t);r();});});if(child.exitCode===null){try{process.platform==='win32'?child.kill('SIGKILL'):process.kill(-child.pid,'SIGKILL');}catch{}}}

@@ -27,3 +27,5 @@
 当前认证：网页账号密码；共享任意人可拉取，Token 由用户网页手动签发共享修改 shared_writer 或全部修改 all_writer。默认初始账号 admin / lanchenglin，首次登录必须改密；初始化脚本返回 password_change_required（退出码 2）时应交付地址与引导文件位置，不能自动生成新密码、清除标记或提前签发 Token。首次改密只需当前密码、新密码和确认新密码，不再要求 BOOTSTRAP_SECRET、bootstrap.json 或原管理员 Token；引导 Secret 仅用于首次创建账号，核实账号已创建并可受限登录后可清理。初始化不签发任何 Token；完成改密后用户自己在网页选择权限和有效期。首次初始化使用 scripts/initialize-hub.mjs，密码恢复使用有明确目标的 scripts/reset-password.mjs；不是旧的 Token-only bootstrap。详见 docs/AUTH.md。
 
 个人自用优先：当前不做性能扩展。Token 可以选择永久，只在网页自行签发；初始化不使用 --token-days、不生成 A/B 文件。新权限按共享/全部技能划分，不按项目/设备；永久仍可手动撤销，不改变会话期限或旧 Token。
+
+新设置的密码统一为6–20个字符（Unicode码点），不截断/去除空格。旧密码登录兼容保留，不重置现有账号；默认初始密码和首次强制改密不变。

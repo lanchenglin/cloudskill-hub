@@ -2,7 +2,28 @@ import {unpack,verifyPackage,validatePackageManifest,boundedBytes} from './lib/a
 import {validateEntries,HARD_LIMITS,MiB} from './lib/policy.js';
 import {frontmatter} from './lib/metadata.js';
 import {publishBrowser} from './lib/browser-upload.js';
+import {MIN_PASSWORD_LENGTH,MAX_PASSWORD_LENGTH,validatePassword,validateNewPassword} from './lib/password-policy.js';
 const $ = id => document.getElementById(id);
+function passwordInputs(formId,firstId,againId,initial=false){
+  const first=$(firstId),again=$(againId),validate=initial?validatePassword:validateNewPassword;
+  function refresh(){
+    for(const input of [first,again]){
+      // HTML maxlength counts UTF-16 units. Allow room for 20 supplementary characters;
+      // this shared code-point check is the actual 6–20 constraint and never truncates input.
+      input.minLength=MIN_PASSWORD_LENGTH;input.maxLength=MAX_PASSWORD_LENGTH*2;
+      let message='';
+      if(input.value){try{validate(input.value);}catch(error){message=error.message.includes('6–20')?'密码须为 6～20 个字符':'新密码不能使用公开的初始密码';}}
+      input.setCustomValidity(message);
+    }
+    if(!again.validationMessage&&again.value&&first.value!==again.value)again.setCustomValidity('两次输入的密码不一致');
+  }
+  first.addEventListener('input',refresh);again.addEventListener('input',refresh);
+  $(formId).addEventListener('reset',()=>queueMicrotask(refresh));refresh();
+}
+passwordInputs('setupForm','setupPassword','setupPasswordAgain',true);
+passwordInputs('forcePasswordForm','forceNewPassword','forceNewPasswordAgain');
+passwordInputs('passwordForm','newPassword','newPasswordAgain');
+
 sessionStorage.removeItem('csh-token'); // Retire old long-lived browser API credentials.
 const state = {csrfToken:'',me:null,projects:[],skills:[],devices:[],view:'library',authStatus:null,mustChangePassword:false};
 let toastTimer;
@@ -187,7 +208,7 @@ $('loginForm').onsubmit=async e=>{
 $('setupForm').onsubmit=async e=>{
   e.preventDefault();$('setupBtn').disabled=true;
   try{
-    const username=$('setupUsername').value,password=$('setupPassword').value;
+    const username=$('setupUsername').value,password=validatePassword($('setupPassword').value);
     if(password!==$('setupPasswordAgain').value)throw Error('两次输入的密码不一致');
     const headers=state.authStatus?.legacyConversion?{Authorization:'Bearer '+$('legacyAdminToken').value.trim()}:{};
     await api('/api/auth/setup','POST',{secret:$('setupSecret').value,username,password},headers);
@@ -201,7 +222,7 @@ $('forcePasswordForm').onsubmit=async e=>{
   try{
     if($('forceNewPassword').value!==$('forceNewPasswordAgain').value)throw Error('两次输入的新密码不一致');
     const username=state.me.label;
-    await api('/api/auth/password','POST',{currentPassword:$('forceCurrentPassword').value,newPassword:$('forceNewPassword').value});
+    await api('/api/auth/password','POST',{currentPassword:$('forceCurrentPassword').value,newPassword:validateNewPassword($('forceNewPassword').value)});
     clearLogin();$('usernameInput').value=username;toast('初始密码已修改，请使用新密码重新登录');
   }catch(error){
     $('forcePasswordError').textContent=error.message;
@@ -211,7 +232,7 @@ $('passwordForm').onsubmit=async e=>{
   e.preventDefault();const button=e.target.querySelector('button[type="submit"]');button.disabled=true;
   try{
     if($('newPassword').value!==$('newPasswordAgain').value)throw Error('两次输入的新密码不一致');
-    await api('/api/auth/password','POST',{currentPassword:$('currentPassword').value,newPassword:$('newPassword').value});
+    await api('/api/auth/password','POST',{currentPassword:$('currentPassword').value,newPassword:validateNewPassword($('newPassword').value)});
     clearLogin();toast('密码已修改，所有网页会话已退出；客户端 Token 保持有效');
   }catch(error){toast(error.message,true);}finally{button.disabled=false;}
 };

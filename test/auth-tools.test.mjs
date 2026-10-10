@@ -30,7 +30,7 @@ async function completeInitialization(t){
   assert.equal(t.f.db.prepare('SELECT COUNT(*) AS n FROM projects').get().n,0);
   assert.equal((await initialize(t.options)).status,'password_change_required');
   const call=await web(t);await call('/api/auth/login',account);
-  const password='AI activated private password for tests 12345';
+  const password='AI activated 12345';
   await call('/api/auth/password',{currentPassword:account.password,newPassword:password});
   await assert.rejects(initialize(t.options),/HTTP 401/);
   const file=path.join(t.dir,'new-password.json');await fs.writeFile(file,JSON.stringify({password}),{mode:0o600});
@@ -40,7 +40,7 @@ async function completeInitialization(t){
 test('AI initializer creates/activates one website account and never issues or assigns device tokens',async()=>{
   const t=await initializationFixture();try{
     const result=await completeInitialization(t),owner=JSON.parse(await fs.readFile(result.admin,'utf8'));
-    assert.equal(owner.username,'admin');assert.ok(owner.password.length>=32);assert.equal(result.status,'ready');
+    assert.equal(owner.username,'admin');assert.equal(owner.password,'AI activated 12345');assert.equal(result.status,'ready');
     assert.equal(result.publisher,undefined);assert.equal(result.reader,undefined);
     assert.equal(t.f.db.prepare("SELECT COUNT(*) AS n FROM access_tokens WHERE credential_type='api'").get().n,0);
     assert.equal(t.f.db.prepare('SELECT COUNT(*) AS n FROM web_sessions').get().n,0);
@@ -71,12 +71,12 @@ test('trusted recovery preserves explicit API token policy and invalidates sessi
     const files=await completeInitialization(t),owner=JSON.parse(await fs.readFile(files.admin,'utf8'));
     const call=await web(t);await call('/api/auth/login',owner);
     const token=(await call('/api/tokens',{label:'Manually issued',role:'all_writer',expiresInDays:null})).token;
-    const hash=await hashPassword('Recovered password for local tests 12345');
+    const hash=await hashPassword('Recovery test 12345');
     t.f.db.exec(recoverySql({hash,version:2}));
     assert.equal(t.f.db.prepare('SELECT COUNT(*) AS n FROM web_sessions').get().n,0);
     assert.equal((await api(t.f.env,'/api/me','GET',null,token)).status,200);
-    assert.equal(await verifyPassword('Recovered password for local tests 12345',t.f.db.prepare('SELECT password_hash FROM web_admin').get().password_hash),true);
-    const later=await hashPassword('Second recovered password for local tests 67890');
+    assert.equal(await verifyPassword('Recovery test 12345',t.f.db.prepare('SELECT password_hash FROM web_admin').get().password_hash),true);
+    const later=await hashPassword('Recovery next 67890');
     t.f.db.exec(recoverySql({hash:later,version:2,revokeTokens:true}));
     assert.equal(t.f.db.prepare('SELECT password_version FROM web_admin').get().password_version,3);
     assert.equal((await api(t.f.env,'/api/me','GET',null,token)).status,200);
