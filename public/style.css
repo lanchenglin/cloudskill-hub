@@ -28,3 +28,5 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 /* Password forms retain readable spacing and do not widen narrow screens. */
 .auth-form{display:grid;gap:10px}.auth-form input,.setup form input,#passwordForm input,#reauthDialog input{width:100%;min-width:0;box-sizing:border-box}
 .setup form,#passwordForm,#reauthForm{display:grid;gap:12px}#reauthDialog{width:min(420px,calc(100vw - 36px))}#authError,#reauthError{color:#f7a3a3;overflow-wrap:anywhere}#passwordForm{margin-top:20px}
+
+.shared-page{max-width:1100px;margin:0 auto;padding:24px;min-width:0}.shared-page .hero{display:block}.shared-text{white-space:pre-wrap;overflow-wrap:anywhere;max-height:60vh;overflow:auto}.shared-page pre{white-space:pre-wrap;overflow-wrap:anywhere}@media(max-width:600px){.shared-page{padding:16px}}

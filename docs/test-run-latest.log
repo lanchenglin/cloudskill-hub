@@ -1,9 +1,7 @@
-CloudSkill Hub current application: 0.3.3
-This is an index of actual local checks, not a fabricated raw execution log.
-Node 24.18.1: npm run check, 75 passed, 0 failed.
-Native local workerd + D1 + R2: default login, mandatory password change without setup proof, permanent/finite scoped tokens + revocation, 7 MiB publish/install and recovery passed.
-Chromium: required password change, reload/re-login/Escape/API rejection, no setup-proof field or request parameter, upload/edit/download and mobile layout passed.
-Cross-platform CI: consult the workflow run for the exact current commit.
-Production Cloudflare deployment: NOT performed.
-Scope: docs/TEST_RESULTS.md
-Token lifetime: explicit null is permanent; omission is 90 days; initializer --token-days never and existing-token reuse verified.
+CloudSkill Hub 0.4.0
+Index of actual local verification, not a raw execution log.
+Node 24.18.1: npm run check, 84 passed, 0 failed.
+Native local workerd/D1/R2: 0001-0005 migrations, shared/all permissions, anonymous binary install, private 7 MiB upload, recovery passed.
+Chromium: two manual Token choices, permanent/finite and revoke, public browse/download, first password change, ZIP and mobile layout passed.
+Actual CLI: public connect/install/update without credentials, skipping prior private installs passed.
+Production deployment: NOT performed. CI: check this exact commit.

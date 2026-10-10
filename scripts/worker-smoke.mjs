@@ -50,28 +50,33 @@ try{
   assert.match(cookie,/^csh_dev_session=/);
   assert.equal((await api('/api/auth/session')).username,'native-admin');
   await api('/api/projects','POST',{slug:'devops',title:'Native test'});
-  const pubRecord=await api('/api/tokens','POST',{label:'A',role:'publisher',projects:['devops'],expiresInDays:null});
-  const readerRecord=await api('/api/tokens','POST',{label:'B',role:'client',projects:['devops'],expiresInDays:null});
+  const pubRecord=await api('/api/tokens','POST',{label:'A',role:'all_writer',expiresInDays:null});
+  const readerRecord=await api('/api/tokens','POST',{label:'B',role:'shared_writer',expiresInDays:null});
   assert.equal(pubRecord.expiresAt,null);assert.equal(readerRecord.expiresAt,null);
   const publisher=pubRecord.token,token=readerRecord.token;
   assert.equal((await api('/api/me','GET',null,token)).expiresAt,null);
-  const finite=await api('/api/tokens','POST',{label:'Finite',role:'client',projects:['devops'],expiresInDays:30});
+  const finite=await api('/api/tokens','POST',{label:'Finite',role:'shared_writer',expiresInDays:30});
   assert.ok(Date.parse(finite.expiresAt)>Date.now()+29*86400000);
   const source=path.join(temp,'source');await fs.mkdir(path.join(source,'assets'),{recursive:true});
   await fs.writeFile(path.join(source,'SKILL.md'),'---\nname: native-test\ndescription: Verify actual local Worker streams.\n---\n# Native\n');
   const bytes=randomBytes(7*1024*1024);await fs.writeFile(path.join(source,'assets','data.bin'),bytes);
-  const identity={url,token};const result=await publishSource({url,token:publisher},'devops',source);assert.equal(result.version,1);
+  const identity={url,token:publisher};const result=await publishSource({url,token:publisher},'devops',source);assert.equal(result.version,1);
   process.env.CLOUDSKILL_HOME=path.join(temp,'home');process.env.CLOUDSKILL_CONFIG_DIR=path.join(temp,'client');
   const installed=await install(identity,'devops','native-test',['claude','codex','hermes']);assert.equal(installed.length,3);
   assert.deepEqual(await fs.readFile(path.join(targetFor('native-test','hermes'),'assets','data.bin')),bytes);
   const noOp=await publishSource({url,token:publisher},'devops',source);assert.equal(noOp.unchanged,true);
   await api('/api/tokens/'+pubRecord.id+'/revoke','POST',{});
   assert.equal((await fetch(url+'/api/me',{headers:{Authorization:'Bearer '+publisher}})).status,401);
-  assert.equal((await api('/api/me','GET',null,token)).role,'client');
+  assert.equal((await api('/api/me','GET',null,token)).role,'shared_writer');
+  const publicSource=path.join(temp,'shared-source');await fs.mkdir(publicSource);
+  await fs.writeFile(path.join(publicSource,'SKILL.md'),'---\nname: native-shared\ndescription: Shared native test.\n---\nPublic instructions.\n');
+  await publishSource({url,token},'devops',publicSource,{visibility:'public'});
+  const anonymous=await install({url,token:null},'devops','native-shared',['hermes']);assert.equal(anonymous[0].status,'installed');
+  assert.equal((await fetch(url+'/api/public/projects/devops/skills/native-test/download')).status,404);
   await api('/api/uploads/cleanup','POST',{});
   await api('/api/auth/password','POST',{currentPassword:password,newPassword:'Native changed test password 67890'});
   assert.equal((await fetch(url+'/api/auth/session',{headers:{Cookie:cookie}})).status,401);
-  assert.equal((await api('/api/me','GET',null,token)).role,'client');
+  assert.equal((await api('/api/me','GET',null,token)).role,'shared_writer');
   await api('/api/auth/login','POST',{username:'native-admin',password:'Native changed test password 67890'});
   await api('/api/auth/logout','POST',{});
   const recoveryFile=path.join(temp,'recovery-password.json');
@@ -81,7 +86,7 @@ try{
   assert.ok(!recovery.stdout.includes('Native recovered test password'));
   await api('/api/auth/login','POST',{username:'native-admin',password:'Native recovered test password 24680'});
   await api('/api/auth/logout','POST',{});
-  console.log('PASS: native workerd scrypt, default login/forced activation/rotation/logout/recovery CLI, permanent scoped tokens + finite token + independent revocation, D1 migrations, 7 MiB R2 upload, 3-agent install, idempotence and cleanup');
+  console.log('PASS: native workerd scrypt, default login/forced activation/rotation/logout/recovery CLI, shared/all tokens + anonymous binary install + independent revocation, D1 migrations, 7 MiB R2 upload, 3-agent install, idempotence and cleanup');
 }catch(error){console.error(logs);throw error;}
 finally{
   if(child&&child.exitCode===null){try{process.platform==='win32'?child.kill():process.kill(-child.pid,'SIGTERM');}catch{}await new Promise(r=>{if(child.exitCode!==null)return r();const t=setTimeout(r,5000);child.once('exit',()=>{clearTimeout(t);r();});});if(child.exitCode===null){try{process.platform==='win32'?child.kill('SIGKILL'):process.kill(-child.pid,'SIGKILL');}catch{}}}

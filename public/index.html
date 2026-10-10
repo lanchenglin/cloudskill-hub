@@ -30,7 +30,7 @@
     <section id="auth-card" class="auth-panel">
       <div class="eyebrow">SELF-HOSTED / ZERO EXTERNAL DATABASES</div>
       <h1>一个技能库，<br/><em>连接你的所有 AI 工具。</em></h1>
-      <p>网页使用管理员账号密码。Hermes、Claude Code 等客户端使用各自的访问令牌。</p>
+      <p>网页管理使用账号密码。共享技能无需登录即可拉取；写入操作使用你在网页签发的 Token。</p><p><a href="/shared.html">浏览共享技能（无需登录） →</a></p>
       <form id="loginForm" class="auth-form">
         <label for="usernameInput">管理员账号</label>
         <input id="usernameInput" autocomplete="username" required minlength="3" maxlength="64" placeholder="首次初始化时设置的账号" />
@@ -80,7 +80,7 @@
             <label>选择技能资源</label>
             <p id="uploadLimits" class="muted">正在读取上传限制…</p><div class="upload-row"><label class="upload-btn" for="skillFile">＋ 单个 SKILL.md<input id="skillFile" type="file" accept=".md,text/markdown" /></label><label class="upload-btn" for="skillFolder">▤ 整个技能目录<input id="skillFolder" type="file" webkitdirectory multiple /></label><label class="upload-btn" for="skillZip">▣ ZIP 压缩包<input id="skillZip" type="file" accept=".zip,application/zip" /></label></div>
             <div id="pickedFiles" class="pick-result">尚未选择文件</div>
-            <label class="checkbox-row"><input type="checkbox" id="makePublic" /> 公开此技能（允许未登录的工具发现和下载）</label>
+            <label class="checkbox-row"><input type="checkbox" id="makePublic" /> 共享此技能（任何人无需 Token 即可发现和下载）</label>
             <button id="publishSubmit" type="submit" class="primary wide">验证并发布版本 →</button>
           <div class="upload-feedback"><progress id="uploadProgress" max="1" value="0" hidden></progress><p id="uploadStatus" role="status" aria-live="polite"></p><p id="pendingUpload" class="muted"></p><button id="cancelUpload" type="button" class="secondary" hidden>取消当前上传</button> <button id="discardUpload" type="button" class="secondary" hidden>放弃待完成会话</button></div></form>
           <div class="panel helper"><h3>支持的技能格式</h3><pre>---
@@ -99,9 +99,9 @@ Step-by-step instructions...</pre><p id="policyHelp"></p><p>同一份 <code>SKIL
 cloudskill subscribe coding --agents claude,codex,hermes
 cloudskill sync
 cloudskill check</pre></div></section>
-      <section id="view-security" class="view" hidden><div class="page-title"><div class="eyebrow">SECURITY / LEAST PRIVILEGE</div><h1>访问权限</h1><p>A 使用限定项目的发布令牌，B 使用只读令牌；每台设备独立授权，支持到期和撤销。</p></div>
-        <div class="two-col"><form id="tokenForm" class="panel"><h3>签发访问令牌</h3><label>令牌备注</label><input id="tokenLabel" required maxlength="80" placeholder="例如 WSL-Dev / Windows-Codex" /><label>角色</label><select id="tokenRole"><option value="client">客户端（只读）</option><option value="publisher">发布者（限定项目，仅私有技能）</option></select><label for="tokenDays">有效期</label><select id="tokenDays"><option value="30">30 天</option><option value="90" selected>90 天</option><option value="365">365 天</option><option value="never">永久有效（直到手动撤销）</option></select><p class="muted">永久令牌不设到期时间；不再使用时可在下方手动撤销。此设置不改变网页登录会话的有效期。</p><label>授权项目（必须选择）</label><div id="tokenScope" class="scope-picker"></div><button type="submit" class="primary wide">生成令牌 →</button><div id="issuedToken" class="issued" hidden><b>请立即复制，此后无法再次查看：</b><code id="issuedValue"></code><button type="button" class="secondary" id="copyIssued">复制</button></div></form>
-        <form id="projectForm" class="panel"><h3>新建项目分类</h3><label>项目英文 ID（不可更改）</label><input id="newProjectSlug" pattern="[a-z0-9]+(-[a-z0-9]+)*" placeholder="devops" required maxlength="64"/><label>展示名称</label><input id="newProjectTitle" placeholder="运维自动化" required maxlength="100"/><button class="secondary wide" type="submit">＋ 创建项目</button><p>建议创建 devops、coding、video、automation 等项目，每个设备只授予必要权限。</p></form></div>
+      <section id="view-security" class="view" hidden><div class="page-title"><div class="eyebrow">SECURITY / LEAST PRIVILEGE</div><h1>访问权限</h1><p>共享技能无需 Token 即可拉取。需要修改时，由你在此签发共享修改或全部修改 Token，支持永久有效和手动撤销。</p></div>
+        <div class="two-col"><form id="tokenForm" class="panel"><h3>签发访问令牌</h3><label>令牌备注</label><input id="tokenLabel" required maxlength="80" placeholder="例如 WSL-Dev / Windows-Codex" /><label>角色</label><select id="tokenRole"><option value="shared_writer">修改共享技能（读取、推送、更新共享区）</option><option value="all_writer">修改全部技能（共享与私有）</option></select><label for="tokenDays">有效期</label><select id="tokenDays"><option value="30">30 天</option><option value="90" selected>90 天</option><option value="365">365 天</option><option value="never">永久有效（直到手动撤销）</option></select><p class="muted">永久令牌不设到期时间；不再使用时可在下方手动撤销。此设置不改变网页登录会话的有效期。</p><p class="muted">不绑定 A/B/C 设备，也不用逐个勾选项目。全部修改 Token 能读取私有技能，请只交给可信工具；两种 Token 都不能管理账号或其他 Token。</p><button type="submit" class="primary wide">生成令牌 →</button><div id="issuedToken" class="issued" hidden><b>请立即复制，此后无法再次查看：</b><code id="issuedValue"></code><button type="button" class="secondary" id="copyIssued">复制</button></div></form>
+        <form id="projectForm" class="panel"><h3>新建项目分类</h3><label>项目英文 ID（不可更改）</label><input id="newProjectSlug" pattern="[a-z0-9]+(-[a-z0-9]+)*" placeholder="devops" required maxlength="64"/><label>展示名称</label><input id="newProjectTitle" placeholder="运维自动化" required maxlength="100"/><button class="secondary wide" type="submit">＋ 创建项目</button><p>建议创建 devops、coding、video、automation 等项目，项目仅用于分类；Token 按共享或全部技能划分权限。</p></form></div>
         <div class="panel"><h3>令牌列表</h3><div id="tokensList" class="rows"></div><button id="revokeAllTokens" class="secondary" type="button">撤销全部客户端 / API 令牌</button><p class="muted">此操作会中断所有客户端后续访问，但不会退出当前网页。修改密码不会自动执行此操作。</p></div>
         <form id="passwordForm" class="panel"><h3>修改管理员密码</h3><p>修改后所有浏览器会话失效；客户端 Token 保持有效。怀疑凭据泄露时，另行撤销 Token。</p><label for="currentPassword">当前密码</label><input id="currentPassword" type="password" autocomplete="current-password" required maxlength="256" /><label for="newPassword">新密码（15–128 字符）</label><input id="newPassword" type="password" autocomplete="new-password" minlength="15" maxlength="256" required /><label for="newPasswordAgain">确认新密码</label><input id="newPasswordAgain" type="password" autocomplete="new-password" required maxlength="256" /><button class="primary" type="submit">修改密码并重新登录</button></form>
       </section>

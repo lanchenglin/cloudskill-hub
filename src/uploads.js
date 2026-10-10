@@ -1,4 +1,5 @@
 import {publisher,publishVisibility} from './auth.js';
+import {defaultVisibility} from './skill-permissions.js';
 /** Binary upload sessions, ownership, CAS publication and bounded abandoned-object cleanup. */
 import {resolveLimits,problem,validateEntries} from '../public/lib/policy.js';
 import {layout} from '../public/lib/archive.js';
@@ -9,7 +10,7 @@ const one=(db,sql,...a)=>db.prepare(sql).bind(...a).first();
 const run=(db,sql,...a)=>db.prepare(sql).bind(...a).run();
 const keys=id=>({archive:`packages/${id}.zip`,manifest:`package-manifests/${id}.json`});
 
-export function capabilities(env){return {version:'0.3.3',uploadProtocol:2,limits:resolveLimits(env),
+export function capabilities(env){return {version:'0.4.0',uploadProtocol:2,limits:resolveLimits(env),
   legacy:{maxFiles:200,maxBundleBytes:6*1024*1024,maxFileBytes:4*1024*1024,maxJsonBytes:9*1024*1024},
   uploads:{sessionTtlSeconds:TTL/1000,maxActive:MAX_ACTIVE,maxStartsPerHour:MAX_HOURLY,resume:'completed-archive',transport:'worker-stream-to-private-r2',zipCompression:['store','deflate']}};}
 export async function startUpload(env,u,project,name,body){
@@ -20,10 +21,10 @@ export async function startUpload(env,u,project,name,body){
   if(!/^[a-f0-9]{64}$/.test(archiveDigest)||body.archiveBytes!==shape.size)throw problem('Invalid archive digest/size');
   const current=await one(db,'SELECT latest_version,visibility FROM skills WHERE project_slug=? AND slug=?',project,name);
   const base=body.baseVersion??current?.latest_version??0;
-  if(!Number.isSafeInteger(base)||base<0||base!==(current?.latest_version??0))throw problem('Skill changed. Refresh before publishing.',409);
-  const visibility=body.visibility??current?.visibility??'private';
+  const visibility=body.visibility??defaultVisibility(u,current?.visibility);
   if(!['private','public'].includes(visibility))throw problem('Invalid visibility');
   publishVisibility(u,project,visibility,current?.visibility);
+  if(!Number.isSafeInteger(base)||base<0||base!==(current?.latest_version??0))throw problem('Skill changed. Refresh before publishing.',409);
   const id=randomId('up_'),time=Date.now(),expires=time+TTL;
   const manifest={format:2,files:shape.entries,archiveDigest,archiveBytes:shape.size,rawBytes:validateEntries(shape.entries,limits)};
   const inserted=await run(db,`INSERT INTO upload_sessions (id,token_id,project_slug,skill_slug,state,manifest,visibility,base_version,created_at,expires_at)
@@ -38,6 +39,8 @@ async function owned(env,u,id,{expired=false}={}){
   publisher(u);const row=await one(env.DB,'SELECT * FROM upload_sessions WHERE id=? AND token_id=?',id,u.id);
   if(!row)throw problem('Upload not found',404);
   publisher(u,row.project_slug);
+  const current=await one(env.DB,'SELECT visibility FROM skills WHERE project_slug=? AND slug=?',row.project_slug,row.skill_slug);
+  publishVisibility(u,row.project_slug,row.visibility,current?.visibility);
   if(row.state!=='committed'&&!expired&&row.expires_at<=Date.now())throw problem('Upload session expired. Start again.',410);
   if(row.state==='deleting')throw problem('Upload is being removed',410);
   return row;
@@ -72,7 +75,7 @@ export async function finalizeUpload(env,u,id){
     ON s.project_slug=v.project_slug AND s.slug=v.slug AND v.version=s.latest_version WHERE s.project_slug=? AND s.slug=?`,s.project_slug,s.skill_slug);
   publishVisibility(u,s.project_slug,s.visibility,cur?.visibility);
   if((cur?.latest_version??0)!==s.base_version)throw problem('Skill changed while uploading. Start a new session against the latest version.',409);
-  const unchanged=cur?.archive_digest===manifest.archiveDigest,n=unchanged?s.base_version:s.base_version+1;
+  const unchanged=cur?.archive_digest===manifest.archiveDigest&&cur.visibility===s.visibility,n=unchanged?s.base_version:s.base_version+1;
   const result={project:s.project_slug,slug:s.skill_slug,version:n,digest:manifest.archiveDigest,archive_digest:manifest.archiveDigest,format:2,unchanged:Boolean(unchanged)};
   const guard="EXISTS(SELECT 1 FROM upload_sessions WHERE id=? AND state='ready' AND expires_at>?)",at=Date.now();
   const stmts=[];
@@ -82,9 +85,9 @@ export async function finalizeUpload(env,u,id){
     stmts.push(db.prepare(`UPDATE upload_sessions SET state='committed',result=? WHERE id=? AND state='ready' AND expires_at>? AND EXISTS(SELECT 1 FROM skills WHERE project_slug=? AND slug=? AND latest_version=?)`).bind(JSON.stringify(result),id,at,s.project_slug,s.skill_slug,n));
   }else{
     stmts.push(db.prepare(`INSERT INTO skills (project_slug,slug,description,latest_version,visibility,updated_at) SELECT ?,?,?,0,?,? WHERE ${guard} ON CONFLICT(project_slug,slug) DO NOTHING`).bind(s.project_slug,s.skill_slug,metadata.description,s.visibility,dt,id,at));
-    stmts.push(db.prepare(`INSERT INTO skill_versions (project_slug,slug,version,artifact_digest,archive_digest,artifact_key,archive_key,file_names,created_at,artifact_format,raw_bytes,description)
-      SELECT project_slug,slug,latest_version+1,?,?,?,?,?,?,2,?,? FROM skills WHERE project_slug=? AND slug=? AND latest_version=? AND ${guard}`)
-      .bind(manifest.archiveDigest,manifest.archiveDigest,key.manifest,key.archive,JSON.stringify(manifest.files.map(f=>f.name)),dt,manifest.rawBytes,metadata.description,s.project_slug,s.skill_slug,s.base_version,id,at));
+    stmts.push(db.prepare(`INSERT INTO skill_versions (project_slug,slug,version,artifact_digest,archive_digest,artifact_key,archive_key,file_names,created_at,artifact_format,raw_bytes,description,published_visibility)
+      SELECT project_slug,slug,latest_version+1,?,?,?,?,?,?,2,?,?,? FROM skills WHERE project_slug=? AND slug=? AND latest_version=? AND ${guard}`)
+      .bind(manifest.archiveDigest,manifest.archiveDigest,key.manifest,key.archive,JSON.stringify(manifest.files.map(f=>f.name)),dt,manifest.rawBytes,metadata.description,s.visibility,s.project_slug,s.skill_slug,s.base_version,id,at));
     stmts.push(db.prepare(`UPDATE skills SET latest_version=?,description=?,visibility=?,updated_at=? WHERE project_slug=? AND slug=? AND latest_version=? AND EXISTS(SELECT 1 FROM skill_versions WHERE project_slug=? AND slug=? AND version=? AND archive_key=?)`).bind(n,metadata.description,s.visibility,dt,s.project_slug,s.skill_slug,s.base_version,s.project_slug,s.skill_slug,n,key.archive));
     stmts.push(db.prepare(`UPDATE upload_sessions SET state='committed',result=? WHERE id=? AND state='ready' AND EXISTS(SELECT 1 FROM skill_versions WHERE project_slug=? AND slug=? AND version=? AND archive_key=?)`).bind(JSON.stringify(result),id,s.project_slug,s.skill_slug,n,key.archive));
   }

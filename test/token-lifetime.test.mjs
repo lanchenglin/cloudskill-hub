@@ -11,18 +11,18 @@ async function ready(){
   for(const slug of ['personal','other'])assert.equal((await api(f.env,'/api/projects','POST',{slug,title:slug},admin)).status,201);
   return {...f,admin};
 }
-const mint=(f,extra={})=>api(f.env,'/api/tokens','POST',{label:'Lifetime fixture',role:'client',projects:['personal'],...extra},f.admin);
+const mint=(f,extra={})=>api(f.env,'/api/tokens','POST',{label:'Lifetime fixture',role:'shared_writer',...extra},f.admin);
 
 test('explicit null issues permanent scoped tokens; omitted lifetime still defaults to 90 days',async()=>{
   const f=await ready();try{
-    for(const role of ['client','publisher']){
+    for(const role of ['shared_writer','all_writer']){
       const response=await mint(f,{role,expiresInDays:null});assert.equal(response.status,201);
       const token=response.data;assert.equal(token.expiresAt,null);
       const record=f.db.prepare('SELECT * FROM access_tokens WHERE id=?').get(token.id);
       assert.equal(record.expires_at,null);assert.equal(record.token_hash,await tokenHash(token.token));
       const me=await api(f.env,'/api/me','GET',null,token.token);
       assert.equal(me.status,200);assert.equal(me.data.expiresAt,null);assert.equal(me.data.role,role);
-      assert.deepEqual(me.data.projects,['personal']);
+      assert.deepEqual(me.data.projects,[]);
       const list=(await api(f.env,'/api/tokens','GET',null,f.admin)).data.tokens;
       const row=list.find(t=>t.id===token.id);assert.equal(row.expires_at,null);assert.equal(row.token,undefined);
     }
@@ -47,21 +47,21 @@ test('permanent expiry must be explicit null: invalid values are rejected withou
   }finally{f.close();}
 });
 
-test('permanent tokens preserve project scope and role; single revocation affects only that credential',async()=>{
+test('permanent tokens preserve visibility scope; revoking one does not affect others or anonymous shared reads',async()=>{
   const f=await ready();try{
-    const pub=(await mint(f,{role:'publisher',label:'A',expiresInDays:null})).data;
-    const reader=(await mint(f,{label:'B',expiresInDays:null})).data;
-    const body={files:skill('permanent-test'),visibility:'private'};
+    const pub=(await mint(f,{role:'shared_writer',label:'Shared editing',expiresInDays:null})).data;
+    const all=(await mint(f,{role:'all_writer',label:'Private editing',expiresInDays:null})).data;
+    const body={files:skill('permanent-test'),visibility:'public'};
     assert.equal((await api(f.env,'/api/projects/personal/skills/permanent-test','POST',body,pub.token)).status,201);
-    assert.equal((await api(f.env,'/api/projects/personal/skills/permanent-test','POST',body,reader.token)).status,403);
-    assert.equal((await api(f.env,'/api/projects/other/skills/permanent-test','POST',body,pub.token)).status,403);
-    assert.equal((await api(f.env,'/api/projects/personal/skills/permanent-test','POST',{...body,visibility:'public'},pub.token)).status,403);
-    assert.equal((await api(f.env,'/api/tokens','POST',{label:'Escalation',role:'publisher',projects:['personal'],expiresInDays:null},pub.token)).status,403);
-    assert.equal((await api(f.env,'/api/catalog','GET',null,reader.token)).data.skills.length,1);
+    assert.equal((await api(f.env,'/api/projects/other/skills/permanent-test','POST',{...body,visibility:'private'},pub.token)).status,403);
+    assert.equal((await api(f.env,'/api/projects/other/skills/permanent-test','POST',{...body,visibility:'private'},all.token)).status,201);
+    assert.equal((await api(f.env,'/api/tokens','POST',{label:'Escalation',role:'all_writer',expiresInDays:null},pub.token)).status,403);
+    assert.equal((await api(f.env,'/api/catalog','GET',null,all.token)).data.skills.length,2);
     assert.equal((await api(f.env,`/api/tokens/${pub.id}/revoke`,'POST',{},f.admin)).status,200);
     assert.equal((await api(f.env,'/api/me','GET',null,pub.token)).status,401);
-    assert.equal((await api(f.env,'/api/me','GET',null,reader.token)).status,200);
-    assert.equal(f.db.prepare('SELECT expires_at FROM access_tokens WHERE id=?').get(reader.id).expires_at,null);
+    assert.equal((await api(f.env,'/api/me','GET',null,all.token)).status,200);
+    assert.equal(f.db.prepare('SELECT expires_at FROM access_tokens WHERE id=?').get(all.id).expires_at,null);
+    assert.equal((await api(f.env,'/api/public/catalog')).data.skills.length,1);
   }finally{f.close();}
 });
 
@@ -91,7 +91,7 @@ test('permanent issuance still requires first password change, CSRF and recent v
     const password='Private lifetime fixture password 12345';
     assert.equal((await web(f.env,'/api/auth/setup',{secret:f.env.BOOTSTRAP_SECRET})).status,201);
     const pending=await web(f.env,'/api/auth/login',{username:'admin',password:'lanchenglin'});
-    const body={label:'Forever',role:'client',projects:['personal'],expiresInDays:null};
+    const body={label:'Forever',role:'shared_writer',expiresInDays:null};
     assert.equal((await web(f.env,'/api/tokens',body,pending)).data.error,'password_change_required');
     assert.equal((await web(f.env,'/api/auth/password',{currentPassword:'lanchenglin',newPassword:password},pending)).status,200);
     const session=await web(f.env,'/api/auth/login',{username:'admin',password});
@@ -118,7 +118,7 @@ test('shared lifetime validation distinguishes omission from null without coerci
     assert.throws(()=>validateTokenDays(days),/Token lifetime/);
 });
 
-test('initializer token-days parser accepts never or days and rejects ambiguous values',()=>{
+test('lifetime value parser accepts never or days and rejects ambiguous values',()=>{
   assert.equal(parseTokenDaysOption('never'),null);
   for(const days of [1,30,90,365])assert.equal(parseTokenDaysOption(String(days)),days);
   for(const value of ['0','366','-1','1.5','1e2','Infinity','NaN','','null','false','90days',' 90','90 ','090',null,0,false])

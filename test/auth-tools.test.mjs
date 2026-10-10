@@ -10,28 +10,26 @@ import {recoverySql} from '../scripts/reset-password.mjs';
 import {hashPassword,verifyPassword} from '../src/password.js';
 
 async function initializationFixture(){
-  const f=fixture(),dir=await fs.mkdtemp(path.join(os.tmpdir(),'csh-init-tool-'));
-  await fs.chmod(dir,0o700);
+  const f=fixture(),dir=await fs.mkdtemp(path.join(os.tmpdir(),'csh-init-tool-'));await fs.chmod(dir,0o700);
   await fs.writeFile(path.join(dir,'bootstrap.json'),JSON.stringify({BOOTSTRAP_SECRET:f.env.BOOTSTRAP_SECRET}),{mode:0o600});
   const output=[],options={url:'https://hub.example',dir,report:x=>output.push(x),fetch:(url,init)=>handler(new Request(url,init),f.env)};
   return {f,dir,output,options,close:async()=>{f.close();await fs.rm(dir,{recursive:true,force:true});}};
 }
-
+async function web(t){
+  let cookie='',csrf='';
+  return async(route,data)=>{
+    const res=await t.options.fetch(t.options.url+route,{method:data===undefined?'GET':'POST',headers:{Origin:t.options.url,'X-CloudSkill-Request':'1','Content-Type':'application/json',Cookie:cookie,'X-CSRF-Token':csrf},body:data===undefined?undefined:JSON.stringify(data)});
+    const result=await res.json();assert.equal(res.status,route==='/api/tokens'?201:200,JSON.stringify(result));
+    if(res.headers.has('set-cookie'))cookie=res.headers.get('set-cookie').split(';')[0];if(result.csrfToken)csrf=result.csrfToken;return result;
+  };
+}
 async function completeInitialization(t){
-  const pending=await initialize(t.options);
-  assert.equal(pending.status,'password_change_required');
-  const account=JSON.parse(await fs.readFile(pending.admin,'utf8'));
-  assert.equal(account.password,'lanchenglin');
+  const pending=await initialize(t.options);assert.equal(pending.status,'password_change_required');
+  const account=JSON.parse(await fs.readFile(pending.admin,'utf8'));assert.equal(account.password,'lanchenglin');
   assert.equal(t.f.db.prepare("SELECT COUNT(*) AS n FROM access_tokens WHERE credential_type='api'").get().n,0);
   assert.equal(t.f.db.prepare('SELECT COUNT(*) AS n FROM projects').get().n,0);
   assert.equal((await initialize(t.options)).status,'password_change_required');
-  let cookie='',csrf='';
-  async function call(route,data){
-    const res=await t.options.fetch(t.options.url+route,{method:'POST',headers:{Origin:t.options.url,'X-CloudSkill-Request':'1','Content-Type':'application/json',Cookie:cookie,'X-CSRF-Token':csrf},body:JSON.stringify(data)});
-    const result=await res.json();assert.equal(res.status,200,JSON.stringify(result));
-    if(res.headers.has('set-cookie'))cookie=res.headers.get('set-cookie').split(';')[0];if(result.csrfToken)csrf=result.csrfToken;return result;
-  }
-  await call('/api/auth/login',account);
+  const call=await web(t);await call('/api/auth/login',account);
   const password='AI activated private password for tests 12345';
   await call('/api/auth/password',{currentPassword:account.password,newPassword:password});
   await assert.rejects(initialize(t.options),/HTTP 401/);
@@ -39,49 +37,43 @@ async function completeInitialization(t){
   return initialize({...t.options,passwordFile:file});
 }
 
-test('AI initializer creates one password account + scoped A/B tokens, saves privately and is repeatable',async()=>{
+test('AI initializer creates/activates one website account and never issues or assigns device tokens',async()=>{
   const t=await initializationFixture();try{
-    const result=await completeInitialization(t);
-    const owner=JSON.parse(await fs.readFile(result.admin,'utf8'));
-    const pub=JSON.parse(await fs.readFile(result.publisher,'utf8')),reader=JSON.parse(await fs.readFile(result.reader,'utf8'));
-    assert.equal(owner.username,'admin');assert.ok(owner.password.length>=32);
-    assert.equal(pub.role,'publisher');assert.equal(reader.role,'client');assert.deepEqual(pub.projects,['personal']);
-    assert.equal((await api(t.f.env,'/api/me','GET',null,pub.token)).data.role,'publisher');
-    assert.equal(t.f.db.prepare("SELECT COUNT(*) AS n FROM access_tokens WHERE credential_type='api'").get().n,2);
+    const result=await completeInitialization(t),owner=JSON.parse(await fs.readFile(result.admin,'utf8'));
+    assert.equal(owner.username,'admin');assert.ok(owner.password.length>=32);assert.equal(result.status,'ready');
+    assert.equal(result.publisher,undefined);assert.equal(result.reader,undefined);
+    assert.equal(t.f.db.prepare("SELECT COUNT(*) AS n FROM access_tokens WHERE credential_type='api'").get().n,0);
     assert.equal(t.f.db.prepare('SELECT COUNT(*) AS n FROM web_sessions').get().n,0);
     await initialize(t.options);
     assert.equal(t.f.db.prepare('SELECT COUNT(*) AS n FROM web_admin').get().n,1);
-    assert.equal(t.f.db.prepare("SELECT COUNT(*) AS n FROM access_tokens WHERE credential_type='api'").get().n,2);
-    const log=t.output.join('\n');for(const secret of [owner.password,pub.token,reader.token,t.f.env.BOOTSTRAP_SECRET])assert.ok(!log.includes(secret));
-    if(process.platform!=='win32')for(const file of [result.admin,result.publisher,result.reader])assert.equal((await fs.stat(file)).mode&0o777,0o600);
+    assert.equal(t.f.db.prepare("SELECT COUNT(*) AS n FROM access_tokens WHERE credential_type='api'").get().n,0);
+    for(const file of ['publisher-a.json','client-b.json'])await assert.rejects(fs.access(path.join(t.dir,file)),{code:'ENOENT'});
+    const log=t.output.join('\n');for(const value of [owner.password,t.f.env.BOOTSTRAP_SECRET])assert.ok(!log.includes(value));
+    assert.match(log,/Issue shared-writer or all-writer tokens yourself/);
+    if(process.platform!=='win32')assert.equal((await fs.stat(result.admin)).mode&0o777,0o600);
     assert.deepEqual(t.f.db.prepare('PRAGMA foreign_key_check').all(),[]);
   }finally{await t.close();}
 });
 
-test('initializer refuses unknown application before sending credentials and does not duplicate lost tokens',async()=>{
+test('initializer rejects unknown application before secrets and cannot reset an existing account when credentials are missing',async()=>{
   const t=await initializationFixture();try{
     let calls=0;
-    await assert.rejects(initialize({...t.options,fetch:async()=>{calls++;return Response.json({app:'untrusted',version:'0.3.0'});}}),/Unexpected deployed/);
-    assert.equal(calls,1);
-    const result=await completeInitialization(t);
-    await fs.unlink(result.publisher);
-    await assert.rejects(initialize(t.options),/saved value is missing/);
-    assert.equal(t.f.db.prepare("SELECT COUNT(*) AS n FROM access_tokens WHERE credential_type='api'").get().n,2);
-    assert.equal(t.f.db.prepare('SELECT COUNT(*) AS n FROM web_sessions').get().n,0);
+    await assert.rejects(initialize({...t.options,fetch:async()=>{calls++;return Response.json({app:'untrusted',version:'0.4.0'});}}),/Unexpected deployed/);assert.equal(calls,1);
+    const result=await completeInitialization(t);await fs.unlink(result.admin);
+    await assert.rejects(initialize(t.options),/Existing administrator/);
+    assert.equal(t.f.db.prepare('SELECT COUNT(*) AS n FROM web_admin').get().n,1);
+    assert.equal(t.f.db.prepare("SELECT COUNT(*) AS n FROM access_tokens WHERE credential_type='api'").get().n,0);
   }finally{await t.close();}
 });
 
-test('trusted recovery SQL invalidates web sessions, supports explicit token revocation and rejects stale writes',async()=>{
+test('trusted recovery preserves explicit API token policy and invalidates sessions; stale recovery does not revoke tokens',async()=>{
   const t=await initializationFixture();try{
     const files=await completeInitialization(t),owner=JSON.parse(await fs.readFile(files.admin,'utf8'));
-    const token=JSON.parse(await fs.readFile(files.reader,'utf8')).token;
-    const response=await handler(new Request('https://hub.example/api/auth/login',{method:'POST',headers:{Origin:'https://hub.example','X-CloudSkill-Request':'1','Content-Type':'application/json'},body:JSON.stringify(owner)}),t.f.env);
-    assert.equal(response.status,200);const cookie=response.headers.get('set-cookie').split(';')[0];await response.body.cancel();
+    const call=await web(t);await call('/api/auth/login',owner);
+    const token=(await call('/api/tokens',{label:'Manually issued',role:'all_writer',expiresInDays:null})).token;
     const hash=await hashPassword('Recovered password for local tests 12345');
-    const sql=recoverySql({hash,version:2});assert.ok(!sql.includes('Recovered password'));
-    t.f.db.exec(sql);
+    t.f.db.exec(recoverySql({hash,version:2}));
     assert.equal(t.f.db.prepare('SELECT COUNT(*) AS n FROM web_sessions').get().n,0);
-    assert.equal((await handler(new Request('https://hub.example/api/auth/session',{headers:{Cookie:cookie}}),t.f.env)).status,401);
     assert.equal((await api(t.f.env,'/api/me','GET',null,token)).status,200);
     assert.equal(await verifyPassword('Recovered password for local tests 12345',t.f.db.prepare('SELECT password_hash FROM web_admin').get().password_hash),true);
     const later=await hashPassword('Second recovered password for local tests 67890');
@@ -94,56 +86,27 @@ test('trusted recovery SQL invalidates web sessions, supports explicit token rev
   }finally{await t.close();}
 });
 
-
-test('AI initializer can create permanent A/B tokens and reports their actual lifetime on rerun',async()=>{
+test('repeated initialization leaves manually issued permanent/finite tokens and preexisting credential files untouched',async()=>{
   const t=await initializationFixture();try{
-    t.options.tokenDays=null;
-    const result=await completeInitialization(t);
-    assert.equal(result.status,'ready');
-    const before={};
-    for(const key of ['publisher','reader']){
-      before[key]=await fs.readFile(result[key],'utf8');
-      const record=JSON.parse(before[key]);assert.equal(record.expiresAt,null);
-      assert.equal((await api(t.f.env,'/api/me','GET',null,record.token)).data.expiresAt,null);
-    }
-    t.output.length=0;
-    // Changing this option does not silently reissue or shorten existing credentials.
-    assert.equal((await initialize({...t.options,tokenDays:30})).status,'ready');
-    for(const key of ['publisher','reader'])assert.equal(await fs.readFile(result[key],'utf8'),before[key]);
-    assert.equal(t.f.db.prepare("SELECT COUNT(*) AS n FROM access_tokens WHERE credential_type='api'").get().n,2);
-    const log=t.output.join('\n');
-    assert.match(log,/publisher: never \(until manually revoked\)/);
-    assert.match(log,/client: never \(until manually revoked\)/);
-    assert.ok(!log.includes('expire after 90 days'));
-    for(const key of ['publisher','reader'])assert.ok(!log.includes(JSON.parse(before[key]).token));
-    assert.equal(t.f.db.prepare('SELECT COUNT(*) AS n FROM web_sessions').get().n,0);
+    const files=await completeInitialization(t),owner=JSON.parse(await fs.readFile(files.admin,'utf8'));
+    const call=await web(t);await call('/api/auth/login',owner);
+    const permanent=await call('/api/tokens',{label:'Chosen shared editor',role:'shared_writer',expiresInDays:null});
+    const finite=await call('/api/tokens',{label:'Chosen private editor',role:'all_writer',expiresInDays:30});
+    await call('/api/auth/logout',{});
+    const before=t.f.db.prepare("SELECT * FROM access_tokens WHERE credential_type='api' ORDER BY id").all();
+    const oldFile=path.join(t.dir,'client-b.json');await fs.writeFile(oldFile,'legacy private file must not be touched',{mode:0o600});
+    assert.equal((await initialize(t.options)).status,'ready');
+    assert.deepEqual(t.f.db.prepare("SELECT * FROM access_tokens WHERE credential_type='api' ORDER BY id").all(),before);
+    assert.equal(await fs.readFile(oldFile,'utf8'),'legacy private file must not be touched');
+    assert.equal((await api(t.f.env,'/api/me','GET',null,permanent.token)).data.expiresAt,null);
+    assert.equal((await api(t.f.env,'/api/me','GET',null,finite.token)).data.expiresAt,finite.expiresAt);
   }finally{await t.close();}
 });
 
-test('requesting permanent tokens does not extend an already issued finite pair',async()=>{
-  const t=await initializationFixture();try{
-    const result=await completeInitialization(t),before={};
-    for(const key of ['publisher','reader']){
-      before[key]=await fs.readFile(result[key],'utf8');
-      assert.ok(Date.parse(JSON.parse(before[key]).expiresAt)>Date.now()+89*86400000);
-    }
-    t.output.length=0;
-    assert.equal((await initialize({...t.options,tokenDays:null})).status,'ready');
-    for(const key of ['publisher','reader']){
-      assert.equal(await fs.readFile(result[key],'utf8'),before[key]);
-      assert.ok(t.output.join('\n').includes(JSON.parse(before[key]).expiresAt));
-    }
-    assert.ok(!t.output.join('\n').includes('never (until manually revoked)'));
-    assert.equal(t.f.db.prepare("SELECT COUNT(*) AS n FROM access_tokens WHERE credential_type='api'").get().n,2);
-  }finally{await t.close();}
-});
-
-test('invalid initializer lifetimes fail before any network request or account file is written',async()=>{
+test('obsolete automatic token options stop before network or credential writes',async()=>{
   const t=await initializationFixture();try{
     let requests=0;
-    for(const tokenDays of [0,-1,366,1.5,false,'never','90'])
-      await assert.rejects(initialize({...t.options,tokenDays,fetch:async()=>{requests++;throw Error('Network must not run');}}),/Token lifetime/);
-    assert.equal(requests,0);
-    assert.deepEqual(await fs.readdir(t.dir),['bootstrap.json']);
+    for(const tokenDays of [null,90,0,'never'])await assert.rejects(initialize({...t.options,tokenDays,fetch:async()=>{requests++;throw Error('unexpected network');}}),/issued manually/);
+    assert.equal(requests,0);await assert.rejects(fs.access(path.join(t.dir,'web-admin.json')),{code:'ENOENT'});
   }finally{await t.close();}
 });

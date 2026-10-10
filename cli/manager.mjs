@@ -1,3 +1,4 @@
+import {connectionHeaders,connectionPath} from './connection.mjs';
 import {downloadPackage} from './transfer.mjs';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,12 +25,12 @@ export function targetFor(name,agent){slug(name);if(!AGENTS.includes(agent))thro
 }
 export async function readJson(filename,fallback){try{return JSON.parse(await fs.readFile(filename,'utf8'));}catch(e){if(e.code==='ENOENT')return fallback;throw e;}}
 export async function atomicJson(filename,obj){await fs.mkdir(path.dirname(filename),{recursive:true,mode:0o700});const tmp=`${filename}.${process.pid}.${randomBytes(4).toString('hex')}`;try{await fs.writeFile(tmp,JSON.stringify(obj,null,2)+'\n',{mode:0o600,flag:'wx'});await fs.rename(tmp,filename);if(process.platform!=='win32')await fs.chmod(filename,0o600);}catch(e){await fs.rm(tmp,{force:true});throw e;}}
-export async function saveConfig(config){const clean={url:hubOrigin(config.url),token:config.token,device:config.device,subscriptions:config.subscriptions||[]};if(!/^csh_[a-f0-9]{48}$/.test(clean.token))throw Error('Invalid CloudSkill API token');if(!/^[a-zA-Z0-9_-]{1,80}$/.test(clean.device))throw Error('Invalid device name');await atomicJson(files().config,clean);return clean;}
-export async function loadConfig(){const c=await readJson(files().config,null);if(!c)throw Error('Not configured. Run cloudskill login https://your-domain');c.url=hubOrigin(c.url);if(!/^csh_[a-f0-9]{48}$/.test(c.token))throw Error('Stored credential is invalid');if(!Array.isArray(c.subscriptions))c.subscriptions=[];return c;}
+export async function saveConfig(config){const clean={url:hubOrigin(config.url),token:config.token,device:config.device,subscriptions:config.subscriptions||[]};if(clean.token!==null&&!/^csh_[a-f0-9]{48}$/.test(clean.token))throw Error('Invalid CloudSkill API token');if(!/^[a-zA-Z0-9_-]{1,80}$/.test(clean.device))throw Error('Invalid device name');await atomicJson(files().config,clean);return clean;}
+export async function loadConfig(){const c=await readJson(files().config,null);if(!c)throw Error('Not configured. Run cloudskill login https://your-domain');c.url=hubOrigin(c.url);if(c.token!==null&&!/^csh_[a-f0-9]{48}$/.test(c.token))throw Error('Stored credential is invalid');if(!Array.isArray(c.subscriptions))c.subscriptions=[];return c;}
 export async function loadState(){const state=await readJson(files().state,{version:1,installed:{}});if(state.version!==1||!state.installed||typeof state.installed!=='object')throw Error('Unsupported state file');return state;}
 export async function request(config,method,endpoint,body=null){
   if(!endpoint.startsWith('/api/')||endpoint.startsWith('//'))throw Error('Unsafe API path');
-  const res=await fetch(config.url+endpoint,{method,headers:{Authorization:`Bearer ${config.token}`,Accept:'application/json',...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,redirect:'error',signal:AbortSignal.timeout(20000)});
+  const res=await fetch(config.url+connectionPath(config,endpoint,method),{method,headers:{...connectionHeaders(config),Accept:'application/json',...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,redirect:'error',signal:AbortSignal.timeout(20000)});
   const advertised=Number(res.headers.get('content-length')||0);if(advertised>limit)throw Error('Response too large');
   const reader=res.body?.getReader();if(!reader)throw Error('Empty response');let sum=0;const blocks=[];
   for(;;){const {done,value}=await reader.read();if(done)break;sum+=value.length;if(sum>limit){await reader.cancel();throw Error('Response exceeds size limit');}blocks.push(value);}
@@ -163,9 +164,10 @@ export async function check(config,state=null){
   return report;
 }
 export async function heartbeat(config,state=null){
+  if(config.token===null)return {ok:true,reported:false,reason:'Shared anonymous connections do not report device inventory'};
   state=state||await loadState();
-  const granted=new Set((await request(config,'GET','/api/projects')).projects.map(r=>r.slug));
-  const installed=Object.values(state.installed).filter(r=>granted.has(r.project)).map(r=>({project:r.project,slug:r.slug,agent:r.agent,version:r.version,digest:r.digest}));
+  const granted=new Set((await catalog(config)).map(r=>`${r.project}/${r.slug}`));
+  const installed=Object.values(state.installed).filter(r=>granted.has(`${r.project}/${r.slug}`)).map(r=>({project:r.project,slug:r.slug,agent:r.agent,version:r.version,digest:r.digest}));
   return request(config,'POST','/api/devices/heartbeat',{deviceId:config.device,name:os.hostname(),os:`${process.platform}/${process.arch}`,agents:[...new Set(installed.map(r=>r.agent))],installs:installed});
 }
 export async function subscribe(config,project,agents,skills=['*']){

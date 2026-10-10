@@ -59,3 +59,12 @@ export async function setup(env){
     .bind(randomId('t_'),'Legacy test administrator',await tokenHash(token),now()).run();
   return token;
 }
+
+/** Pre-migration fixture only: new HTTP issuance must NOT create these legacy types. */
+export async function legacyToken(env,label,role,projects){
+  if(!['publisher','client'].includes(role))throw Error('Invalid legacy fixture role');
+  const token=randomId('csh_'),id=randomId('t_'),expiresAt=new Date(Date.now()+90*86400000).toISOString();
+  await env.DB.prepare("INSERT INTO access_tokens(id,label,token_hash,role,project_scope,created_at,can_publish,credential_type,expires_at) VALUES(?,?,?,'client',?,?,?,'api',?)")
+    .bind(id,label,await tokenHash(token),JSON.stringify(projects),now(),role==='publisher'?1:0,expiresAt).run();
+  return {id,token,role,projects,expiresAt};
+}

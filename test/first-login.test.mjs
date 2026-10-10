@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
 import {fixture,api,setup,skill} from './helpers.mjs';
+import {legacyToken} from './helpers.mjs';
 import {handler} from '../src/index.js';
 import {INITIAL_ADMIN_PASSWORD,hashInitialPassword,hashPassword,validatePassword,verifyPassword} from '../src/password.js';
 import {issueToken} from '../src/auth.js';
@@ -92,8 +93,8 @@ test('first change needs only current/new passwords with a valid session and CSR
     const activated=await web(f.env,'/api/auth/login',{username:'admin',password:NEXT});
     assert.equal(activated.data.mustChangePassword,false);assert.equal(activated.data.activationSecretRequired,false);
     assert.equal((await web(f.env,'/api/projects',{slug:'personal',title:'Personal'},activated)).status,201);
-    const token=await web(f.env,'/api/tokens',{label:'A',role:'publisher',projects:['personal']},activated);
-    assert.equal(token.status,201);assert.equal((await api(f.env,'/api/me','GET',null,token.data.token)).data.role,'publisher');
+    const token=await web(f.env,'/api/tokens',{label:'Personal editing',role:'all_writer'},activated);
+    assert.equal(token.status,201);assert.equal((await api(f.env,'/api/me','GET',null,token.data.token)).data.role,'all_writer');
   }finally{f.close();}
 });
 
@@ -167,7 +168,7 @@ test('legacy conversion still requires its admin token at setup, but not again d
   const f=fixture();try{
     const old=await setup(f.env);
     await api(f.env,'/api/projects','POST',{slug:'personal',title:'Personal'},old);
-    const reader=(await api(f.env,'/api/tokens','POST',{label:'Existing B',role:'client',projects:['personal']},old)).data.token;
+    const reader=(await legacyToken(f.env,'Existing B','client',['personal'])).token;
     assert.equal((await web(f.env,'/api/auth/setup',{username:'admin',secret:f.env.BOOTSTRAP_SECRET})).status,403);
     const created=await web(f.env,'/api/auth/setup',{username:'admin'},undefined,'POST',{Authorization:'Bearer '+old});
     assert.equal(created.status,201);

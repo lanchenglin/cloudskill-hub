@@ -1,0 +1,7 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>共享技能 · CloudSkill Hub</title><link rel="stylesheet" href="/style.css"/><script src="/shared.js" type="module"></script></head>
+<body><main class="main-area shared-page"><header class="topbar"><strong>CloudSkill Hub / 共享技能</strong><a href="/">管理员登录 →</a></header>
+<section class="hero"><div><div class="eyebrow">SHARED SKILLS / NO TOKEN REQUIRED</div><h1>共享技能<span class="mark">.</span></h1><p>任何人都可以浏览、下载和手动更新这些共享技能，不需要 Token。私有技能不会出现在这里。</p></div></section>
+<section class="panel"><h3>连接你的 AI 工具</h3><pre id="sharedCommands"></pre><p class="muted">需要修改时，请由管理员在网页签发“修改共享技能”或“修改全部技能”Token。不要在共享内容中保存私人凭据。</p></section>
+<div class="toolbar"><input id="sharedSearch" placeholder="搜索共享技能名称 / 说明" aria-label="搜索共享技能"/></div><p id="sharedStatus" role="status">正在加载共享技能…</p><div id="sharedGrid" class="skill-grid"></div>
+<dialog id="sharedDialog"><form method="dialog"><button class="dialog-close" aria-label="关闭">×</button></form><h2 id="sharedTitle"></h2><pre id="sharedText" class="shared-text"></pre><a id="sharedDownload" class="primary">下载 ZIP</a></dialog></main></body></html>

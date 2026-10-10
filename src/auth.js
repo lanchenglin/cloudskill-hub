@@ -9,19 +9,8 @@ const run=(db,sql,...a)=>db.prepare(sql).bind(...a).run();
 const HOURS=3600000;
 export const SESSION_TTL=12*HOURS, SESSION_IDLE=30*60000, REAUTH_TTL=5*60000;
 const secret=()=>randomBytes(32).toString('hex');
-export const allowed=(u,p)=>u.role==='admin'||u.projects.includes(p);
-export function admin(u){if(u.role!=='admin')throw problem('Administrator access required',403);}
-export function access(u,p){if(!allowed(u,p))throw problem('Project access denied',403);}
-export function publisher(u,p){
-  if(!['admin','publisher'].includes(u.role))throw problem('Publishing permission required',403);
-  if(p!==undefined)access(u,p);
-}
-export function publishVisibility(u,p,visibility,currentVisibility){
-  publisher(u,p);
-  // A token entrusted to an AI must not accidentally expose private credentials.
-  if(u.role==='publisher'&&(visibility==='public'||currentVisibility==='public'))
-    throw problem('Publisher tokens can only publish private skills; public visibility requires the web administrator',403);
-}
+import {allowed,admin,access,publisher,publishVisibility,tokenRole} from './skill-permissions.js';
+export {allowed,admin,access,publisher,publishVisibility} from './skill-permissions.js';
 export function recent(u){
   admin(u);
   if(u.authType==='session'&&u.reauthenticatedAt<Date.now()-REAUTH_TTL)
@@ -87,7 +76,7 @@ export async function principal(request,env){
   if(request.headers.has('authorization')){
     const h=request.headers.get('authorization');
     if(!/^Bearer csh_[a-f0-9]{48}$/.test(h))throw problem('Authentication required',401);
-    const row=await one(env.DB,`SELECT id,label,role,project_scope,can_publish,expires_at,last_used_at FROM access_tokens
+    const row=await one(env.DB,`SELECT id,label,role,project_scope,can_publish,permission_mode,expires_at,last_used_at FROM access_tokens
       WHERE token_hash=? AND credential_type='api' AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>?)`,await tokenHash(h.slice(7)),now());
     if(!row)throw problem('Invalid, expired or revoked token',401);
     await requireActivatedAccount(env);
@@ -95,7 +84,7 @@ export async function principal(request,env){
     if(!Array.isArray(projects)||projects.some(p=>typeof p!=='string'))throw problem('Invalid permission scope',503);
     if(!row.last_used_at||Date.parse(row.last_used_at)<Date.now()-600000)
       await run(env.DB,'UPDATE access_tokens SET last_used_at=? WHERE id=?',now(),row.id);
-    return {id:row.id,label:row.label,role:row.role==='admin'?'admin':row.can_publish?'publisher':'client',projects,authType:'token',expiresAt:row.expires_at};
+    return {id:row.id,label:row.label,role:tokenRole(row),scope:row.permission_mode,projects,authType:'token',expiresAt:row.expires_at};
   }
   return webSession(request,env);
 }
@@ -112,18 +101,17 @@ async function throttle(request,env,action,perIp=10,global=50){
     if(row.attempts>limit){const e=problem('Too many authentication attempts; try again later',429);e.retryAfter=Math.max(1,Math.ceil((row.reset_at-time)/1000));throw e;}
   }
 }
-export async function issueToken(env,label,role,projects,days=90){
+export async function issueToken(env,label,role,projects=[],days=90){
   await requireActivatedAccount(env);
   if(typeof label!=='string'||!label.trim()||label.length>80)throw problem('Token label required');
-  if(!['client','publisher'].includes(role))throw problem('New API tokens must be client or publisher; use the website for administration');
-  if(!Array.isArray(projects)||!projects.length||projects.length>50)throw problem('Choose 1–50 projects');
-  projects=[...new Set(projects.map(slug))];
+  if(!['shared_writer','all_writer'].includes(role))throw problem('Choose shared_writer or all_writer; shared downloads need no token');
+  if(!Array.isArray(projects)||projects.length)throw problem('These token types are visibility-based, not project-scoped; omit projects');
   days=validateTokenDays(days);
-  for(const p of projects)if(!await one(env.DB,'SELECT slug FROM projects WHERE slug=?',p))throw problem('Unknown project '+p);
   const token=randomId('csh_'),id=randomId('t_'),expiresAt=days===null?null:new Date(Date.now()+days*24*HOURS).toISOString();
-  await run(env.DB,`INSERT INTO access_tokens (id,label,token_hash,role,project_scope,created_at,can_publish,credential_type,expires_at)
-    VALUES (?,?,?,'client',?,?,?,'api',?)`,id,label.trim(),await tokenHash(token),JSON.stringify(projects),now(),role==='publisher'?1:0,expiresAt);
-  return {id,token,role,projects,expiresAt};
+  const scope=role==='shared_writer'?'shared':'all';
+  await run(env.DB,`INSERT INTO access_tokens (id,label,token_hash,role,project_scope,created_at,can_publish,credential_type,expires_at,permission_mode)
+    VALUES (?,?,?,'client','[]',?,1,'api',?,?)`,id,label.trim(),await tokenHash(token),now(),expiresAt,scope);
+  return {id,token,role,scope,projects:[],expiresAt};
 }
 async function createAccount(request,env,body){
   if(!body||typeof body!=='object'||Array.isArray(body))throw problem('Expected setup object');

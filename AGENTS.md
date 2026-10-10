@@ -24,6 +24,6 @@
 
 运行测试前注意：Hermes 进程可能带有 HERMES_HOME 等环境变量，必须按照 AI_DEPLOY.md 隔离测试子进程，避免写入用户真实技能目录。
 
-当前认证：网页账号密码，A 为 publisher，B 为 client。默认初始账号 admin / lanchenglin，首次登录必须改密；初始化脚本返回 password_change_required（退出码 2）时应交付地址与引导文件位置，不能自动生成新密码、清除标记或提前签发 Token。首次改密只需当前密码、新密码和确认新密码，不再要求 BOOTSTRAP_SECRET、bootstrap.json 或原管理员 Token；引导 Secret 仅用于首次创建账号，核实账号已创建并可受限登录后可清理。完成改密后才继续 A/B 配置。首次初始化使用 scripts/initialize-hub.mjs，密码恢复使用有明确目标的 scripts/reset-password.mjs；不是旧的 Token-only bootstrap。详见 docs/AUTH.md。
+当前认证：网页账号密码；共享任意人可拉取，Token 由用户网页手动签发共享修改 shared_writer 或全部修改 all_writer。默认初始账号 admin / lanchenglin，首次登录必须改密；初始化脚本返回 password_change_required（退出码 2）时应交付地址与引导文件位置，不能自动生成新密码、清除标记或提前签发 Token。首次改密只需当前密码、新密码和确认新密码，不再要求 BOOTSTRAP_SECRET、bootstrap.json 或原管理员 Token；引导 Secret 仅用于首次创建账号，核实账号已创建并可受限登录后可清理。初始化不签发任何 Token；完成改密后用户自己在网页选择权限和有效期。首次初始化使用 scripts/initialize-hub.mjs，密码恢复使用有明确目标的 scripts/reset-password.mjs；不是旧的 Token-only bootstrap。详见 docs/AUTH.md。
 
-个人自用优先：当前不做性能扩展。Token 可以选择永久；网页选择“永久有效”，初始化脚本在首次改密后的新 Token 签发阶段可用 --token-days never。永久仍限定项目并支持手动撤销，不改变网页会话期限，不能自动把已有定期令牌延期。
+个人自用优先：当前不做性能扩展。Token 可以选择永久，只在网页自行签发；初始化不使用 --token-days、不生成 A/B 文件。新权限按共享/全部技能划分，不按项目/设备；永久仍可手动撤销，不改变会话期限或旧 Token。

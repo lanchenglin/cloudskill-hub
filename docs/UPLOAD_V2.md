@@ -74,7 +74,7 @@ created → uploading → ready → committed
  cancelled / expired → deleting → 清理
 ```
 
-会话绑定创建它的发布身份：API Token ID 或网页管理员的内部授权主体。别的 Token 不能接管；同一网页管理员重新登录可续接。publisher 只能发布授权项目的私有技能，client 不能发起、上传或提交发布。每次新请求都会重新鉴权；撤销令牌后不能继续提交新请求，但正在处理中的单个请求不是实时远程中断。
+会话绑定创建它的发布身份：API Token ID 或网页管理员的内部授权主体。别的 Token 不能接管；同一网页管理员重新登录可续接。新 shared_writer 仅能修改共享技能；all_writer 可修改共享与私有技能，但不能管理网站。旧 publisher/client 只兼容原有权限，不再新签发。每次新请求都会重新鉴权；撤销令牌后不能继续提交新请求，但正在处理中的单个请求不是实时远程中断。
 
 创建时记录目标 project/skill、manifest、可见性和 baseVersion。上传结束只代表 R2 收到了正确内容，不代表已经发布。finalize 使用 D1 batch 事务及版本比较提交：只有当前版本仍等于 baseVersion 且会话已 ready 才能建立新版本。并发发布或公开名称冲突返回 409，不覆盖刚发布的内容。
 

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
 import {fixture,api,setup} from './helpers.mjs';
+import {legacyToken} from './helpers.mjs';
 import {handler} from '../src/index.js';
 import {cleanupUploads} from '../src/uploads.js';
 import {pack,unpack} from '../public/lib/archive.js';
@@ -37,14 +38,15 @@ test('binary publish -> scoped private download -> public discovery -> retained 
     const downloaded=await handler(new Request('https://hub.example'+detail.data.downloadPath,{headers:{Authorization:`Bearer ${t}`}}),f.env);
     assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()),Buffer.from(await pkg.blob.arrayBuffer()));
     const file=await handler(new Request('https://hub.example/api/projects/devops/skills/test-skill/versions/1/file?path=scripts%2Frun.sh',{headers:{Authorization:`Bearer ${t}`}}),f.env);assert.equal(await file.text(),'echo hello\n');
-    const same=await publishBinary(f.env,t,pkg,'test-skill',{visibility:'public'});assert.equal(same.data.unchanged,true);assert.equal(same.data.version,1);
+    const same=await publishBinary(f.env,t,pkg,'test-skill',{visibility:'public'});assert.equal(same.data.unchanged,false);assert.equal(same.data.version,2);
+    const noop=await publishBinary(f.env,t,pkg,'test-skill',{visibility:'public'});assert.equal(noop.data.unchanged,true);assert.equal(noop.data.version,2);
     assert.equal((await api(f.env,'/.well-known/skills/index.json')).data.skills.length,1);
-    const next=await pack(source('test-skill',[],'New description.'));const changed=await publishBinary(f.env,t,next);assert.equal(changed.data.version,2);
+    const next=await pack(source('test-skill',[],'New description.'));const changed=await publishBinary(f.env,t,next);assert.equal(changed.data.version,3);
     const retained=await handler(new Request(`https://hub.example/.well-known/agent-skills/test-skill/${pkg.manifest.archiveDigest}.zip`),f.env);assert.equal(retained.status,200);await retained.body.cancel();
-    const roll=await api(f.env,'/api/projects/devops/skills/test-skill/rollback','POST',{version:1,baseVersion:2},t);assert.equal(roll.data.version,3);
+    const roll=await api(f.env,'/api/projects/devops/skills/test-skill/rollback','POST',{version:1,baseVersion:3},t);assert.equal(roll.data.version,4);
     const back=await api(f.env,'/api/catalog','GET',null,t);assert.equal(back.data.skills[0].description,'Testing binary upload safely.');
     const read=await handler(new Request('https://hub.example/.well-known/skills/test-skill/SKILL.md'),f.env);assert.match(await read.text(),/hermes:/);
-    const hidden=await publishBinary(f.env,t,pkg,'test-skill',{visibility:'private'});assert.equal(hidden.data.unchanged,true);
+    const hidden=await publishBinary(f.env,t,pkg,'test-skill',{visibility:'private'});assert.equal(hidden.data.unchanged,false);assert.equal(hidden.data.version,5);
     assert.equal((await handler(new Request(`https://hub.example/.well-known/agent-skills/test-skill/${pkg.manifest.archiveDigest}.zip`),f.env)).status,404);
     assert.equal((await api(f.env,`/api/uploads/${id}`,'DELETE',null,t)).status,409);
   }finally{f.close();}
@@ -71,8 +73,8 @@ test('stream rejects corruption, wrong size, metadata mismatch, truncation and p
 test('session ownership, revocation, quota, expiration and garbage collection preserve published versions',async()=>{
   const f=fixture();try{
     const t=await setup(f.env);await project(f.env,t);
-    const other=(await api(f.env,'/api/tokens','POST',{role:'publisher',label:'other',projects:['devops']},t)).data.token;
-    const client=(await api(f.env,'/api/tokens','POST',{role:'client',label:'device',projects:['devops']},t)).data.token;
+    const other=(await legacyToken(f.env,'other','publisher',['devops'])).token;
+    const client=(await legacyToken(f.env,'device','client',['devops'])).token;
     const pkg=await pack(source());assert.equal((await begin(f.env,client,pkg)).status,403);
     const b=await begin(f.env,t,pkg),id=b.data.id;
     assert.equal((await api(f.env,`/api/uploads/${id}`,'GET',null,other)).status,404);

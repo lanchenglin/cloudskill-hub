@@ -8,7 +8,7 @@ import { randomBytes } from 'node:crypto';
 import { hubOrigin, parseAgents, loadConfig, saveConfig, loadState, request, catalog, install, check, heartbeat, subscribe, sync, localFiles, files, withLock, readJson } from './manager.mjs';
 import { frontmatter, decode64 } from '../src/core.js';
 
-const USAGE=`CloudSkill Hub CLI — independent Agent Skills management\n\nCommands:\n  cloudskill login https://YOUR-HUB             Login (token via CLOUDSKILL_TOKEN or interactive prompt)\n  cloudskill whoami                              Check account permissions\n  cloudskill projects                            List accessible projects\n  cloudskill list [project]                      List private and public Skills\n  cloudskill publish <project> <folder|zip> [--public|--private] [--resume id] [--legacy]\n  cloudskill install <project>/<skill> [--agents claude,codex,hermes] [--force] [--dry-run]\n  cloudskill subscribe <project> [--agents ...] [--skills skill1,skill2|*]\n  cloudskill sync [--force] [--dry-run]           Install/update subscribed Skills\n  cloudskill check                               Check updates and local modifications\n  cloudskill update [--force] [--dry-run]         Update previously installed Skills\n  cloudskill uploads [id]                       Inspect pending upload sessions\n  cloudskill cancel-upload <id>                 Cancel an unpublished upload\n  cloudskill limits                             Show server upload policy\n  cloudskill status                              Local device inventory + send heartbeat\n  cloudskill logout                              Remove local credentials (does NOT revoke remote token)\n`;
+const USAGE=`CloudSkill Hub CLI — independent Agent Skills management\n\nCommands:\n  cloudskill connect https://YOUR-HUB           Read shared skills without any token\n  cloudskill login https://YOUR-HUB             Login (token via CLOUDSKILL_TOKEN or interactive prompt)\n  cloudskill whoami                              Check account permissions\n  cloudskill projects                            List accessible projects\n  cloudskill list [project]                      List private and public Skills\n  cloudskill publish <project> <folder|zip> [--public|--private] [--resume id] [--legacy]\n  cloudskill install <project>/<skill> [--agents claude,codex,hermes] [--force] [--dry-run]\n  cloudskill subscribe <project> [--agents ...] [--skills skill1,skill2|*]\n  cloudskill sync [--force] [--dry-run]           Install/update subscribed Skills\n  cloudskill check                               Check updates and local modifications\n  cloudskill update [--force] [--dry-run]         Update previously installed Skills\n  cloudskill uploads [id]                       Inspect pending upload sessions\n  cloudskill cancel-upload <id>                 Cancel an unpublished upload\n  cloudskill limits                             Show server upload policy\n  cloudskill status                              Local device inventory + send heartbeat\n  cloudskill logout                              Remove local credentials (does NOT revoke remote token)\n`;
 function option(args,key){const idx=args.indexOf(`--${key}`);return idx<0?undefined:args[idx+1];}
 function flag(args,name){return args.includes(`--${name}`);}
 function print(data){console.log(JSON.stringify(data,null,2));}
@@ -18,9 +18,10 @@ let lastProgress=0;
 function progress(event){if(event.phase==='session')return console.error('Upload session:',event.id);if(event.phase==='skipped')return console.error('Skipped ZIP metadata:',event.paths.join(', '));if(Date.now()-lastProgress>1000||event.done===event.total){console.error(`${event.phase}: ${event.done}/${event.total}`);lastProgress=Date.now();}}
 async function main(){const [command,...args]=process.argv.slice(2);
   if(!command||command==='help'||command==='--help')return console.log(USAGE);
-  if(command==='login'){
-    const url=hubOrigin(args[0]);let token=process.env.CLOUDSKILL_TOKEN;
-    if(!token){if(!process.stdin.isTTY)throw Error('Set CLOUDSKILL_TOKEN in the environment for noninteractive login');
+  if(command==='login'||command==='connect'){
+    const anonymous=command==='connect'||flag(args,'public');
+    const url=hubOrigin(args[0]);let token=anonymous?null:process.env.CLOUDSKILL_TOKEN;
+    if(!anonymous&&!token){if(!process.stdin.isTTY)throw Error('Set CLOUDSKILL_TOKEN in the environment for noninteractive login');
       token=(await promptSecret('Hub access token (hidden): ')).trim();}
     // Validate before modifying the on-disk login so a typo never destroys a valid device session.
     const identity=await request({url,token},'GET','/api/me');
@@ -61,13 +62,13 @@ async function main(){const [command,...args]=process.argv.slice(2);
   if(command==='update')return withLock(async()=>{
     const state=await loadState();const out=[];
     const todo=[...new Set(Object.values(state.installed).map(r=>`${r.project}/${r.slug}`))];
-    const allowed=new Set((await request(config,'GET','/api/projects')).projects.map(p=>p.slug));
-    for(const item of todo){const [project,name]=item.split('/');if(!allowed.has(project)){out.push({project,name,status:'skipped',reason:'token no longer has project access'});continue;}
+    const readable=new Set((await catalog(config)).map(s=>`${s.project}/${s.slug}`));
+    for(const item of todo){const [project,name]=item.split('/');if(!readable.has(item)){out.push({project,name,status:'skipped',reason:'skill is not readable with this connection or is no longer available'});continue;}
       const agents=Object.values(state.installed).filter(r=>r.project===project&&r.slug===name).map(r=>r.agent);
       out.push(...await install(config,project,name,agents,{...options(args),onlyIfChanged:true}));}
     if(!flag(args,'dry-run'))await heartbeat(config);return print(out);
   });
-  if(command==='status'){const state=await loadState();let syncStatus='reported';try{await heartbeat(config);}catch(e){syncStatus='not reported: '+e.message;}return print({device:config.device,heartbeat:syncStatus,installed:Object.values(state.installed),subscriptions:config.subscriptions});}
+  if(command==='status'){const state=await loadState();let syncStatus=config.token===null?'not applicable (shared anonymous connection)':'reported';try{await heartbeat(config);}catch(e){syncStatus='not reported: '+e.message;}return print({device:config.device,heartbeat:syncStatus,installed:Object.values(state.installed),subscriptions:config.subscriptions});}
   throw Error('Unknown command: '+command+'\n\n'+USAGE);
 }
 main().catch(e=>{console.error('Error:',e.message);process.exitCode=1;});

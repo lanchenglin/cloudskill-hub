@@ -1,4 +1,5 @@
 /** V2 upload/download transport. Compatible with both v1 and v2 installed versions. */
+import {connectionHeaders,connectionPath} from './connection.mjs';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import {openAsBlob} from 'node:fs';
@@ -44,6 +45,7 @@ async function binaryPut(config,endpoint,blob,onProgress=()=>{}){
   if(!response.ok)throw Error(`Hub HTTP ${response.status}: ${data.error||'Upload failed'}`);return data;
 }
 export async function publishSource(config,project,input,options={}){
+  if(config.token===null)throw Error('A shared read-only connection cannot publish. Sign in with a write token issued on the website.');
   safeName(project);const cap=await request(config,'GET','/api/capabilities');
   if(cap.uploadProtocol!==2)throw Error('Upgrade your Hub server to v0.2.0, or explicitly use --legacy for small folders');
   // Never honor a server response above this client's tested hard limits.
@@ -85,7 +87,7 @@ export async function downloadPackage(config,bundle){
   const m=bundle.manifest;
   validatePackageManifest(m);
   if(bundle.digest!==m.archiveDigest)throw Error('Invalid package metadata: version/archive digest mismatch');
-  const response=await fetch(config.url+endpoint,{headers:{Authorization:`Bearer ${config.token}`},redirect:'error',signal:AbortSignal.timeout(300000)});
+  const response=await fetch(config.url+connectionPath(config,endpoint),{headers:connectionHeaders(config),redirect:'error',signal:AbortSignal.timeout(300000)});
   if(!response.ok){await response.body?.cancel();throw Error('Archive download failed: HTTP '+response.status);}
   const advertised=Number(response.headers.get('content-length')||0);if(advertised&&advertised!==m.archiveBytes){await response.body?.cancel();throw Error('Archive length mismatch');}
   const bytes=await boundedBytes(response.body,m.archiveBytes);

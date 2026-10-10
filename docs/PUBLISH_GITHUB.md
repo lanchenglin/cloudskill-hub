@@ -49,4 +49,4 @@ npm run check
 
 实现思路参考 skillsgist、Agent Skills、skills-handler 和 Hermes 的公开约定，项目本身独立实现，不依赖 skillsgist 的程序运行。保留 [LICENSE](../LICENSE)；未来引入第三方代码或资产时应检查许可证并保留要求的说明。
 
-网页使用账号密码，A/B 使用 scoped publisher/client Token。AI 初始化会把 web-admin.json、publisher-a.json、client-b.json 保存到源码目录以外；这些文件不得提交到公开仓库。见 [AI_DEPLOY.md](../AI_DEPLOY.md)。
+网页使用账号密码；共享匿名可读，修改权限通过网页自行签发 shared_writer/all_writer Token。AI 初始化仅在仓库外保存 web-admin.json，不自动生成任何 Token。所有真实凭据不得提交公开仓库。见 [AI_DEPLOY.md](../AI_DEPLOY.md)。

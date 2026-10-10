@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {fixture,api,setup,skill} from './helpers.mjs';
+import {legacyToken} from './helpers.mjs';
 import {handler} from '../src/index.js';
 import {hashPassword,verifyPassword,validatePassword,validateUsername,INITIAL_ADMIN_PASSWORD} from '../src/password.js';
 import {SESSION_IDLE,SESSION_TTL,REAUTH_TTL,cleanupAuth} from '../src/auth.js';
@@ -31,7 +32,7 @@ async function fresh(env){
 async function project(env,session,name='personal'){
   const result=await web(env,'/api/projects','POST',{slug:name,title:name},session);assert.equal(result.status,201);return result;
 }
-async function issue(env,session,role='client',projects=['personal'],extra={}){
+async function issue(env,session,role='all_writer',projects=[],extra={}){
   const r=await web(env,'/api/tokens','POST',{role,projects,label:role+'-test',...extra},session);assert.equal(r.status,201,JSON.stringify(r.data));return r.data;
 }
 
@@ -112,7 +113,7 @@ test('session rotation, logout, absolute timeout and idle timeout are enforced s
 
 test('changing a password invalidates all web sessions but leaves API tokens independent',async()=>{
   const f=fixture();try{
-    const s=await fresh(f.env);await project(f.env,s);const t=await issue(f.env,s,'publisher');
+    const s=await fresh(f.env);await project(f.env,s);const t=await issue(f.env,s,'all_writer');
     const second=await web(f.env,'/api/auth/login','POST',{username:'owner',password:PASSWORD});
     assert.equal((await web(f.env,'/api/auth/password','POST',{currentPassword:'wrong',newPassword:NEXT_PASSWORD},s)).status,401);
     const changed=await web(f.env,'/api/auth/password','POST',{currentPassword:PASSWORD,newPassword:NEXT_PASSWORD},s);
@@ -130,7 +131,7 @@ test('sensitive token operations require recent password verification and explic
   const f=fixture();try{
     const s=await fresh(f.env);await project(f.env,s);const t=await issue(f.env,s);
     f.db.prepare('UPDATE web_sessions SET reauthenticated_at=?').run(Date.now()-REAUTH_TTL-1);
-    const body={label:'new',role:'publisher',projects:['personal']};
+    const body={label:'new',role:'all_writer'};
     assert.equal((await web(f.env,'/api/tokens','POST',body,s)).data.error,'reauth_required');
     assert.equal((await web(f.env,'/api/auth/reauth','POST',{password:'wrong'},s)).status,401);
     assert.equal((await web(f.env,'/api/auth/reauth','POST',{password:PASSWORD},s)).status,200);
@@ -142,25 +143,25 @@ test('sensitive token operations require recent password verification and explic
   }finally{f.close();}
 });
 
-test('finite tokens are scoped publisher/client only; no internal web identity in token listings',async()=>{
+test('new writer tokens have visibility-based scope and expire; no internal web identity is exposed',async()=>{
   const f=fixture();try{
     const s=await fresh(f.env);await project(f.env,s);
-    for(const body of [{role:'admin',projects:[]},{role:'publisher',projects:[]},{role:'publisher',projects:['missing']},
-      {role:'client',projects:['personal'],expiresInDays:0},{role:'client',projects:['personal'],expiresInDays:366}])
+    for(const body of [{role:'admin'},{role:'publisher'},{role:'client'},
+      {role:'all_writer',projects:['personal']},{role:'shared_writer',expiresInDays:0},{role:'shared_writer',expiresInDays:366}])
       assert.equal((await web(f.env,'/api/tokens','POST',{label:'bad',...body},s)).status,400);
-    const t=await issue(f.env,s,'publisher');assert.equal(t.role,'publisher');assert.ok(Date.parse(t.expiresAt)>Date.now()+89*86400000);
-    const me=await api(f.env,'/api/me','GET',null,t.token);assert.equal(me.data.role,'publisher');assert.deepEqual(me.data.projects,['personal']);
-    const list=await web(f.env,'/api/tokens','GET',undefined,s);assert.equal(list.data.tokens.length,1);assert.equal(list.data.tokens[0].role,'publisher');assert.equal(list.data.tokens[0].token,undefined);
+    const t=await issue(f.env,s,'all_writer');assert.equal(t.role,'all_writer');assert.ok(Date.parse(t.expiresAt)>Date.now()+89*86400000);
+    const me=await api(f.env,'/api/me','GET',null,t.token);assert.equal(me.data.role,'all_writer');assert.deepEqual(me.data.projects,[]);
+    const list=await web(f.env,'/api/tokens','GET',undefined,s);assert.equal(list.data.tokens.length,1);assert.equal(list.data.tokens[0].role,'all_writer');assert.equal(list.data.tokens[0].token,undefined);
     assert.equal(f.db.prepare('SELECT token_hash FROM access_tokens WHERE id=?').get(t.id).token_hash,await tokenHash(t.token));
     f.db.prepare("UPDATE access_tokens SET expires_at='2000-01-01T00:00:00.000Z' WHERE id=?").run(t.id);
     assert.equal((await api(f.env,'/api/me','GET',null,t.token)).status,401);
   }finally{f.close();}
 });
 
-test('project publisher can publish private JSON/ZIP and cannot cross scopes, expose skills or administer',async()=>{
+test('pre-existing project publisher can publish private JSON/ZIP and cannot cross scopes, expose skills or administer',async()=>{
   const f=fixture();try{
     const s=await fresh(f.env);await project(f.env,s);await project(f.env,s,'other');
-    const p=await issue(f.env,s,'publisher'),b=await issue(f.env,s,'client');
+    const p=await legacyToken(f.env,'Legacy publisher','publisher',['personal']),b=await legacyToken(f.env,'Legacy reader','client',['personal']);
     const payload={files:skill('a-skill'),visibility:'private'};
     assert.equal((await api(f.env,'/api/projects/personal/skills/a-skill','POST',payload,p.token)).status,201);
     assert.equal((await api(f.env,'/api/projects/other/skills/a-skill','POST',payload,p.token)).status,403);
@@ -187,7 +188,7 @@ test('existing API-admin conversion preserves data and requires the original adm
   const f=fixture();try{
     const old=await setup(f.env);await api(f.env,'/api/projects','POST',{slug:'personal',title:'Personal'},old);
     await api(f.env,'/api/projects/personal/skills/retained','POST',{files:skill('retained')},old);
-    const b=(await api(f.env,'/api/tokens','POST',{role:'client',label:'Reader',projects:['personal']},old)).data;
+    const b=await legacyToken(f.env,'Reader','client',['personal']);
     const status=await web(f.env,'/api/auth/status');assert.equal(status.data.legacyConversion,true);
     const body={secret:f.env.BOOTSTRAP_SECRET,username:'owner',password:PASSWORD};
     assert.equal((await web(f.env,'/api/auth/setup','POST',body)).status,403);

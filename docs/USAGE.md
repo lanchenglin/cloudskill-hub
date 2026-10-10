@@ -1,115 +1,88 @@
-# 日常使用：A 发布，B 手动更新
+# 日常使用：共享无需 Token，修改由你授权
 
-管理员必须先完成首次强制改密，才能创建项目和签发 A/B Token。默认 admin / lanchenglin 仅是初始登录，不能用来长期管理仓库。
+只部署一个 Hub，其他环境主动连接。网页管理员管理分类、可见性和 Token；客户端不会自动获得管理员权限。
 
-本项目只需要部署一个 Hub。网站管理员用账号密码管理；AI/CLI 用各自的 Token。首次安装见 [SETUP.md](SETUP.md)，权限见 [AUTH.md](AUTH.md)。
-
-## 1. 两种凭据，不要混用
-
-管理员网页账号不会交给每套 Hermes。A 使用 `publisher` Token，B 使用 `client` Token；两种 Token 都限定项目、可到期和撤销。旧全权限 admin API Token 仅兼容保留，正常新部署不需要它。
+## 1. 每个环境安装 CLI
 
 ```bash
-cloudskill login https://skills.example.com
-cloudskill whoami
-cloudskill projects
+git clone https://github.com/lanchenglin/cloudskill-hub.git
+cd cloudskill-hub
+npm ci
+npm link
+cloudskill --help
+```
+
+无需 sudo，也不必把网页登录密码交给 Hermes。`npm link` 不适合当前环境时，直接用 `node cli/cloudskill.mjs ...`。
+
+## 2. 仅使用共享内容，不签发 Token
+
+```bash
+cloudskill connect https://YOUR-HUB
 cloudskill list
-```
-
-客户端提示输入访问 Token，输入不回显。`CLOUDSKILL_TOKEN` 可用于非交互登录；只能通过已授权的环境/私有文件提供，不把实际值硬编码到命令、聊天、Skill 或 Git。
-
-## 2. A 修改后发布
-
-假设 Hub 已有 personal 项目，技能 name 是 my-skill：
-
-```bash
-cloudskill publish personal "$HOME/.hermes/skills/my-skill" --private
-# 也可以发布准备好的目录或 ZIP
-cloudskill publish personal ./my-skill --private
-cloudskill publish personal ./my-skill.zip --private
-```
-
-一包一个 Skill，根目录必须有 SKILL.md。A 的来源目录不要求由 CloudSkill 安装。相同内容不重复增加版本。发布者只能发布授权项目的私有内容，不能通过 --public 公开，也不能修改已公开的技能；这类操作交给网页管理员。
-
-## 3. B 首次安装，以后按需更新
-
-```bash
-cloudskill install personal/my-skill --agents hermes
+cloudskill install personal/example --agents hermes
 cloudskill update
-```
-
-update 更新本设备已通过 CloudSkill 安装的技能，不自动安装所有新增技能。需要接收某项目新增内容时：
-
-```bash
 cloudskill subscribe personal --agents hermes --skills '*'
-cloudskill sync --dry-run
 cloudskill sync
 ```
 
-subscribe 只记录订阅；sync 只下载，不自动上传改动，也不启动后台任务。B 有发布权限并明确执行 publish 时也能回传。
+`connect` 保存地址和匿名模式，不需要任何密钥。网站 `/shared.html` 也可匿名浏览、下载。共享就是公开可读，不是限定自己的设备；共享页面不会发送浏览器管理员凭据。
 
-## 4. Claude / Codex 及多套 Hermes
+`update` 更新已托管技能；订阅后 `sync` 也能安装新增的共享技能。它们都由你手动执行，不是自动互推。匿名连接不上报设备，不允许 publish；无效写入 Token 会报错，不自动降级为匿名。
 
-```bash
-cloudskill install personal/my-skill --agents claude
-cloudskill install personal/my-skill --agents claude,hermes
-```
+## 3. 修改内容时才去网页签发
 
-当前目录实现：
+网页“访问权限” → 填备注 → 选择以下一种 → 选择有效期 → 生成并保存只显示一次的 Token。
 
-| Agent | 默认安装根 | 环境变量 |
+| 类型 | 允许 | 不允许 |
 |---|---|---|
-| Claude Code | ~/.claude/skills | CLAUDE_CONFIG_DIR |
-| Hermes | ~/.hermes/skills | HERMES_HOME |
-| Codex | ~/.codex/skills | CODEX_HOME |
+| 修改共享技能 `shared_writer` | 跨分类读取、新建、更新、回滚共享技能 | 读取/修改私人内容、将私有改为共享、将共享隐藏、网站管理 |
+| 修改全部技能 `all_writer` | 跨分类读取、推送、更新、回滚共享与私有技能，明确切换可见性 | 网站账号管理、分类管理、签发/撤销其他 Token |
 
-上述是当前代码路径，不承诺所有 Agent 版本都会加载。Codex 等工具可能使用其他发现路径，须按真实客户端验收；这次认证改造没有改变安装目录，也没有新增任意工具适配。
+不勾选项目、不预分配 A/B/C，不需要公共只读 Token。备注和分发给哪些实例由你决定。项目分类请先在网页建立。
 
-同机同用户多套 Hermes，**每套同时隔离 HERMES_HOME 和 CLOUDSKILL_CONFIG_DIR**。不要让两个配置操作同一个安装目标：
-
-```bash
-# 示例：运维 Hermes。整个使用期间保持这组变量一致。
-export HERMES_HOME="$HOME/hermes-ops"
-export CLOUDSKILL_CONFIG_DIR="$HOME/.config/cloudskill-ops"
-cloudskill login https://skills.example.com
-cloudskill subscribe personal --agents hermes --skills '*'
-cloudskill sync
-```
-
-另一套使用不同目录和单独 Token，不覆盖真实 Hermes 配置。Windows PowerShell 对应 `$env:HERMES_HOME=...`、`$env:CLOUDSKILL_CONFIG_DIR=...`。容器把配置和技能目录挂载为自己的持久卷。
-
-## 5. 冲突、备份和删除
-
-B 本地改过同一技能时默认拒绝覆盖；先比较，再决定保留哪份。两端都编辑时不自动合并，也不要把上传期间的并发保护当作完整多端编辑基线。
-
-确认要放弃本地修改后，`--force` 可替换**已托管**的技能或恢复已删除的托管目录；不会接管未知来源同名目录。替换前备份留在 Agent 根的 `.cloudskill-backups/`，不放在可加载技能目录中。备份默认不自动删除。
-
-`cloudskill check` 检查版本及本地修改，`--dry-run` 预检不下载 ZIP。`cloudskill status` 上报安装清单，不执行技能。CLI 使用同一配置目录的操作锁；异常遗留锁先确认没有运行进程，不要盲目删除。
-
-## 6. Token 到期与网页改密码
-
-个人长期使用可以在网页“访问权限 → 签发访问令牌 → 有效期”选择 **永久有效（直到手动撤销）**。A 的发布 Token 和 B/C 的只读 Token 都支持；列表会显示“永久有效（可手动撤销）”，不是“旧令牌未设到期时间”。保留 30 / 90 / 365 天，默认仍为 90 天。
-
-永久令牌不会仅因超过一年而失效，但手动撤销仍会阻止之后的 API 请求。已经有期限的 Token 不会自动延期；需要永久时新建并让该设备重新 `cloudskill login`，验证成功后再撤销旧 Token。其他设备不受影响。网页登录会话仍独立过期，修改密码仍撤销浏览器会话，**不更换 A/B 的 Token**；疑似泄露时撤销对应 Token，或明确执行“撤销全部客户端 / API 令牌”。
-
-`cloudskill logout` 仅移除本地配置中的凭据，不撤销服务器 Token。网页退出则会撤销该浏览器会话，这两种退出不要混淆。
-
-## 7. 文件限制与隐私
-
-`cloudskill limits` 查看服务器上限。默认总计 50 MiB、单文件 20 MiB、1000 文件、ZIP 55 MiB。支持 STORE/DEFLATE 输入，不支持加密 ZIP、ZIP64、软链接和危险路径。隐藏 .env/.ssh/.git 路径仍被拒绝。
-
-普通文件中的真实凭据会随包分发，并进入历史和备份；账号密码登录不等于独立凭据保险库。始终保持私有，不把凭据写进公开 name/description 或公开 Git 示例。Token 被撤销不能收回已下载文件；泄露的服务密钥需要在原服务撤销/更换。
-
-配置文件在 Unix 以 0600 保存，Windows 依赖用户目录和 ACL；同一系统用户运行的进程仍可读取，不能宣称端到端加密。
-
-## 8. 上传中断
+有效期保留 30 / 90 / 365 天和永久；API 定期可为 1–365 天。不主动选择仍为 90 天。永久直到手动撤销，不延长网页登录会话。新签发不会改变旧 Token。
 
 ```bash
-cloudskill uploads
-cloudskill uploads up_YOUR_SESSION_ID
-cloudskill publish personal ./my-skill.zip --private --resume up_YOUR_SESSION_ID
-cloudskill cancel-upload up_YOUR_SESSION_ID
+cloudskill login https://YOUR-HUB
+# 在隐藏输入提示中粘贴自己签发的 Token
+cloudskill whoami
+cloudskill publish personal ./shared-skill --public
+# 以下命令需要修改全部 Token：
+cloudskill publish personal ./private-skill --private
+cloudskill install personal/private-skill --agents hermes
 ```
 
-会话归创建它的身份所有。重新上传同样内容前先确认状态，避免重复发布；已上传完整包可以复用会话，部分中断要重传完整 ZIP，不是字节级续传。恢复时仍核对私有/公开选择。
+同一 Token 可交给多套受信任工具；分别签发便于单独撤销，但不是必须按设备绑定。要拉取私有内容，当前使用修改全部 Token；此模型没有新增私有只读 Token。
 
-公开 well-known 只暴露管理员显式公开的技能；私有分发使用 cloudskill，不把 Token 拼进 URL。程序源码提交、Hub 部署和 Skill 发布是三件不同的事。
+已有技能省略可见性时保持原值；新建时共享修改 Token 默认共享，全部修改 Token 默认私有。推荐显式参数避免混淆。共享修改 Token 不能读取以前的私有版本；共享改回私有后，访客和共享 Token 都无法继续读取。已经下载的副本不能收回。
+
+## 4. 多套 Hermes / Claude
+
+每套运行环境自己执行登录或匿名 connect，不互相自动覆盖。全局目录仍按当前适配器使用：
+
+| Agent | 目录 | 配置 |
+|---|---|---|
+| Hermes | `~/.hermes/skills` | HERMES_HOME |
+| Claude Code | `~/.claude/skills` | CLAUDE_CONFIG_DIR |
+| Codex（现有目录适配器） | `~/.codex/skills` | CODEX_HOME |
+
+本次没有改 Agent 路径矩阵；实际 Codex/Hermes 版本是否发现应另行验证，不以文件复制成功冒充模型执行成功。
+
+同一系统用户运行多套 Hermes 时，每套同时隔离 `HERMES_HOME` 与 `CLOUDSKILL_CONFIG_DIR`。例如：
+
+```bash
+export HERMES_HOME="$HOME/hermes-dev"
+export CLOUDSKILL_CONFIG_DIR="$HOME/.config/cloudskill-hermes-dev"
+cloudskill connect https://YOUR-HUB
+# 需要私有或写入权限时改为 cloudskill login
+```
+
+更新前可以 `cloudskill check` / `cloudskill sync --dry-run`。本地改过时拒绝覆盖；明确放弃修改才使用 `--force`，并且它不会接管未知同名目录。备份在 Agent 根目录的 `.cloudskill-backups/`，不是 Skills 加载目录。
+
+## 5. 凭据和维护
+
+含真实凭据的技能保持私有。共享页面与 well-known 端点对所有人可读。`.env` 等路径仍被拒绝；本次没有新增凭据保险库、自动文件排除、永久删除或自动清理备份。
+
+`cloudskill logout` 只删除当前本地凭据，不撤销服务器 Token。网页撤销才阻止后续访问；改网页密码不会自动撤销 Token。旧 Token-only/项目限定令牌可继续按原权限使用，但不再新签发，也不自动升权。
+
+其他已知使用问题见 [ROADMAP](ROADMAP.md)，权限/API 见 [AUTH](AUTH.md) / [API](API.md)。

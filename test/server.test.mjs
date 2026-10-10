@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {fixture,skill,api,setup} from './helpers.mjs';
+import {legacyToken} from './helpers.mjs';
 import {encode64} from '../src/core.js';
 import {handler} from '../src/index.js';
 
@@ -15,7 +16,7 @@ test('private registry, scoped tokens, public well-known routes and version roll
     const tokenHeader={Authorization:'Bearer '+admin};
     assert.equal((await api(env,'/api/projects','POST',{slug:'devops',title:'DevOps'},admin)).status,201);
     assert.equal((await api(env,'/api/projects','POST',{slug:'coding',title:'Code'},admin)).status,201);
-    const issued=await api(env,'/api/tokens','POST',{label:'Hermes Device',role:'client',projects:['devops']},admin);
+    const issued={status:201,data:await legacyToken(env,'Hermes Device','client',['devops'])};
     assert.equal(issued.status,201);const client=issued.data.token;
     assert.equal((await api(env,'/api/projects','GET',null,client)).data.projects.length,1);
     assert.equal((await api(env,'/api/projects','POST',{slug:'xyz',title:'Bad'},client)).status,403);

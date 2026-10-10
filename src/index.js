@@ -1,3 +1,4 @@
+import {GUEST,sharedOnly,canReadSkill,readSkill,defaultVisibility,tokenRole} from './skill-permissions.js';
 import {principal,admin,access,allowed,publisher,publishVisibility,recent,issueToken,authRoutes,cleanupAuth} from './auth.js';
 import {capabilities,startUpload,uploadStatus,uploadArchive,finalizeUpload,cancelUpload,cleanupUploads} from './uploads.js';
 import {fileBody,versionPayload,readPackage} from './packages.js';
@@ -36,7 +37,7 @@ async function getCatalog(env,u,p){
     v.artifact_digest AS digest,v.archive_digest AS archive_digest,v.file_names AS file_names,v.artifact_format AS format,v.raw_bytes AS bytes
     FROM skills s JOIN skill_versions v ON v.project_slug=s.project_slug AND v.slug=s.slug AND v.version=s.latest_version
     ORDER BY s.project_slug,s.slug`);
-  return all.filter(r=>(!p||r.project===p)&&allowed(u,r.project)).map(r=>({...r,files:JSON.parse(r.file_names),file_names:undefined}));
+  return all.filter(r=>(!p||r.project===p)&&canReadSkill(u,r.project,r.visibility)).map(r=>({...r,files:JSON.parse(r.file_names),file_names:undefined}));
 }
 async function latestVersion(env,p,s,version=null){
   return queryOne(env.DB,`SELECT v.*,s.description AS skill_description,s.visibility,s.latest_version FROM skill_versions v JOIN skills s ON s.project_slug=v.project_slug AND s.slug=v.slug WHERE v.project_slug=? AND v.slug=? AND v.version=${version===null?'s.latest_version':'?'}`, ...(version===null?[p,s]:[p,s,version]));
@@ -49,9 +50,9 @@ async function publish(request,env,u,p,s){
   if(!await queryOne(env.DB,'SELECT slug FROM projects WHERE slug=?',p))fail('Project does not exist',404);
   const input=await readJson(request);
   const {files,meta}=normalizedFiles(input.files,s);
-  const visibility=input.visibility??'private';
-  if(!['public','private'].includes(visibility))fail('visibility must be public or private');
   const existingSkill=await queryOne(env.DB,'SELECT visibility FROM skills WHERE project_slug=? AND slug=?',p,s);
+  const visibility=input.visibility??defaultVisibility(u,existingSkill?.visibility);
+  if(!['public','private'].includes(visibility))fail('visibility must be public or private');
   publishVisibility(u,p,visibility,existingSkill?.visibility);
   if(visibility==='public'){
     const conflict=await queryOne(env.DB,'SELECT project_slug FROM skills WHERE slug=? AND visibility=\'public\' AND project_slug<>?',s,p);
@@ -60,7 +61,7 @@ async function publish(request,env,u,p,s){
   const digest=await fileDigest(files);
   const previous=await latestVersion(env,p,s);
   if(input.baseVersion!==undefined&&input.baseVersion!==(previous?.latest_version??0))fail('Skill changed. Refresh before publishing.',409);
-  if(previous?.artifact_digest===digest){
+  if(previous?.artifact_digest===digest&&previous.visibility===visibility){
     await queryRun(env.DB,'UPDATE skills SET visibility=?,description=?,updated_at=? WHERE project_slug=? AND slug=?',visibility,meta.description,now(),p,s);
     await audit(env,u.label,'visibility_or_noop',{project:p,skill:s,visibility});
     return json({project:p,slug:s,version:previous.version,digest,unchanged:true});
@@ -74,7 +75,7 @@ async function publish(request,env,u,p,s){
   const n=Number(previous?.latest_version||0)+1;
   // A unique version constraint prevents silent duplicate publication. A retry is appropriate for concurrent publishers.
   await env.DB.batch([
-    env.DB.prepare('INSERT INTO skill_versions (project_slug,slug,version,artifact_digest,archive_digest,artifact_key,archive_key,file_names,created_at) VALUES (?,?,?,?,?,?,?,?,?)').bind(p,s,n,digest,archiveDigest,artifactKey,archiveKey,JSON.stringify(Object.keys(files)),date),
+    env.DB.prepare('INSERT INTO skill_versions (project_slug,slug,version,artifact_digest,archive_digest,artifact_key,archive_key,file_names,created_at,published_visibility) VALUES (?,?,?,?,?,?,?,?,?,?)').bind(p,s,n,digest,archiveDigest,artifactKey,archiveKey,JSON.stringify(Object.keys(files)),date,visibility),
     env.DB.prepare('UPDATE skills SET description=?,latest_version=?,visibility=?,updated_at=? WHERE project_slug=? AND slug=?').bind(meta.description,n,visibility,date,p,s),
   ]);
   await audit(env,u.label,'publish',{project:p,skill:s,version:n,visibility});
@@ -85,6 +86,7 @@ async function rollback(request,env,u,p,s){
   if(!Number.isSafeInteger(version)||version<1)fail('Invalid version');
   const old=await latestVersion(env,p,s,version),cur=await latestVersion(env,p,s);
   if(!old||!cur)fail('Version not found',404);
+  readSkill(u,p,cur.visibility,old.published_visibility);
   publishVisibility(u,p,cur.visibility,cur.visibility);
   if(old.artifact_digest===cur.artifact_digest)return json({unchanged:true,version:cur.version});
   if(body.baseVersion!==undefined&&body.baseVersion!==cur.latest_version)fail('Skill changed. Refresh before rollback.',409);
@@ -92,7 +94,7 @@ async function rollback(request,env,u,p,s){
   const description=old.artifact_format===2?oldArtifact.description:frontmatter(new TextDecoder().decode(decode64(oldArtifact['SKILL.md']))).description;
   const n=cur.latest_version+1,dt=now();
   await env.DB.batch([
-    env.DB.prepare('INSERT INTO skill_versions (project_slug,slug,version,artifact_digest,archive_digest,artifact_key,archive_key,file_names,created_at,artifact_format,raw_bytes,description) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').bind(p,s,n,old.artifact_digest,old.archive_digest,old.artifact_key,old.archive_key,old.file_names,dt,old.artifact_format,old.raw_bytes,description),
+    env.DB.prepare('INSERT INTO skill_versions (project_slug,slug,version,artifact_digest,archive_digest,artifact_key,archive_key,file_names,created_at,artifact_format,raw_bytes,description,published_visibility) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(p,s,n,old.artifact_digest,old.archive_digest,old.artifact_key,old.archive_key,old.file_names,dt,old.artifact_format,old.raw_bytes,description,cur.visibility),
     env.DB.prepare('UPDATE skills SET latest_version=?,description=?,updated_at=? WHERE project_slug=? AND slug=? AND latest_version=?').bind(n,description,dt,p,s,cur.latest_version),
   ]);
   await audit(env,u.label,'rollback',{project:p,skill:s,from:cur.version,to:version,newVersion:n});
@@ -116,7 +118,7 @@ async function wellKnown(req,env,u){
     return plain(await fileBody(env,row,rel),mime(rel),true);
   }
   m=/^\/\.well-known\/agent-skills\/([^/]+)\/([a-f0-9]{64})\.zip$/.exec(path);
-  if(m){const row=await queryOne(env.DB,`SELECT v.*,s.visibility FROM skill_versions v JOIN skills s ON s.project_slug=v.project_slug AND s.slug=v.slug WHERE s.slug=? AND s.visibility='public' AND v.archive_digest=? LIMIT 1`,m[1],m[2]);if(!row)fail('Not found',404);
+  if(m){const row=await queryOne(env.DB,`SELECT v.*,s.visibility FROM skill_versions v JOIN skills s ON s.project_slug=v.project_slug AND s.slug=v.slug WHERE s.slug=? AND s.visibility='public' AND v.published_visibility='public' AND v.archive_digest=? LIMIT 1`,m[1],m[2]);if(!row)fail('Not found',404);
     const obj=await env.BUCKET.get(row.archive_key);if(!obj)fail('Unavailable',503);
     return plain(obj.body,'application/zip',true,`${row.slug}.zip`);
   }
@@ -125,8 +127,8 @@ async function wellKnown(req,env,u){
 
 export async function handler(request,env){
   try{
-    const url=new URL(request.url),path=url.pathname,method=request.method.toUpperCase();
-    if(method==='GET'&&path==='/healthz')return json({ok:true,app:'cloudskill-hub',version:'0.3.3'},200,true);
+    const url=new URL(request.url),method=request.method.toUpperCase();let path=url.pathname;
+    if(method==='GET'&&path==='/healthz')return json({ok:true,app:'cloudskill-hub',version:'0.4.0'},200,true);
     const authResponse=await authRoutes(request,env,readJson,json);
     if(authResponse)return authResponse;
     if(method==='GET'&&path.startsWith('/.well-known/'))return await wellKnown(request,env);
@@ -140,7 +142,16 @@ export async function handler(request,env){
       }
       fail('Not found',404);
     }
-    const u=await principal(request,env);
+    const publicRead=path.startsWith('/api/public/');
+    let u;
+    if(publicRead){
+      if(method!=='GET')fail('Authentication required for modifications',401);
+      path='/api/'+path.slice('/api/public/'.length);
+      if(!['/api/me','/api/projects','/api/catalog','/api/skills','/api/capabilities'].includes(path)&&
+          !/^\/api\/projects\/[^/]+\/skills\/[^/]+\/(download|versions(?:\/[0-9]+(?:\/(download|file))?)?)$/.test(path))fail('Not found',404);
+      // Even a logged-in administrator sees only shared data through this namespace.
+      u=GUEST;
+    }else u=await principal(request,env);
     if(method==='GET'&&path==='/api/capabilities')return json(capabilities(env));
     if(method==='GET'&&path==='/api/uploads'){publisher(u);return json({uploads:await queryAll(env.DB,'SELECT id,project_slug AS project,skill_slug AS slug,state,base_version AS baseVersion,created_at,expires_at FROM upload_sessions WHERE token_id=? ORDER BY created_at DESC LIMIT 50',u.id)});}
     if(method==='POST'&&path==='/api/uploads/cleanup'){admin(u);return json(await cleanupUploads(env));}
@@ -153,9 +164,11 @@ export async function handler(request,env){
       if(method==='PUT'&&upload[2]==='archive')return json(await uploadArchive(env,u,upload[1],request));
       if(method==='POST'&&upload[2]==='finalize')return json(await finalizeUpload(env,u,upload[1]));
     }
-    if(method==='GET'&&path==='/api/me')return json({label:u.label,role:u.role,projects:u.projects,authType:u.authType,expiresAt:u.expiresAt});
+    if(method==='GET'&&path==='/api/me')return json({label:u.label,role:u.role,projects:u.projects,scope:u.scope??(sharedOnly(u)?'shared':'all'),authType:u.authType,expiresAt:u.expiresAt});
     if(method==='GET'&&path==='/api/projects'){
-      const rows=await queryAll(env.DB,'SELECT * FROM projects ORDER BY slug');
+      const rows=sharedOnly(u)
+        ?await queryAll(env.DB,"SELECT p.* FROM projects p WHERE EXISTS(SELECT 1 FROM skills s WHERE s.project_slug=p.slug AND s.visibility='public' AND s.latest_version>0) ORDER BY p.slug")
+        :await queryAll(env.DB,'SELECT * FROM projects ORDER BY slug');
       return json({projects:rows.filter(r=>allowed(u,r.slug))});
     }
     if(method==='POST'&&path==='/api/projects'){
@@ -166,10 +179,10 @@ export async function handler(request,env){
     }
     if(method==='GET'&&(path==='/api/catalog'||path==='/api/skills'))return json({skills:await getCatalog(env,u,url.searchParams.get('project'))});
     if(method==='GET'&&path==='/api/tokens'){
-      admin(u);return json({tokens:await queryAll(env.DB,`SELECT id,label,CASE WHEN role='client' AND can_publish=1 THEN 'publisher' ELSE role END AS role,project_scope,created_at,revoked_at,expires_at,last_used_at FROM access_tokens WHERE credential_type='api' ORDER BY created_at DESC`)});
+      admin(u);const rows=await queryAll(env.DB,`SELECT id,label,role,can_publish,permission_mode,project_scope,created_at,revoked_at,expires_at,last_used_at FROM access_tokens WHERE credential_type='api' ORDER BY created_at DESC`);return json({tokens:rows.map(r=>({...r,role:tokenRole(r)}))});
     }
     if(method==='POST'&&path==='/api/tokens'){
-      recent(u);const b=await readJson(request,4096);const token=await issueToken(env,b.label,b.role,b.projects||[],b.expiresInDays);
+      recent(u);const b=await readJson(request,4096);const token=await issueToken(env,b.label,b.role,b.projects??[],b.expiresInDays);
       await audit(env,u.label,'issue_token',{role:b.role,label:b.label});return json(token,201);
     }
     let m=/^\/api\/tokens\/([a-zA-Z0-9_-]+)\/revoke$/.exec(path);
@@ -189,7 +202,7 @@ export async function handler(request,env){
       const b=await readJson(request,65_536);
       if(typeof b.deviceId!=='string'||!/^[a-zA-Z0-9_-]{1,80}$/.test(b.deviceId))fail('Invalid deviceId');
       if(typeof b.name!=='string'||!b.name||b.name.length>100||!Array.isArray(b.agents)||b.agents.length>10||!Array.isArray(b.installs)||b.installs.length>300)fail('Invalid device inventory');
-      for(const i of b.installs){slug(i.project);slug(i.slug);if(!allowed(u,i.project))fail('Inventory includes unauthorized project',403);}
+      for(const i of b.installs){slug(i.project);slug(i.slug);if(!allowed(u,i.project))fail('Inventory includes unauthorized project',403);if(sharedOnly(u)){const s=await queryOne(env.DB,'SELECT visibility FROM skills WHERE project_slug=? AND slug=?',i.project,i.slug);if(!s||s.visibility!=='public')fail('Inventory includes unavailable skill',403);}}
       await queryRun(env.DB,'INSERT INTO devices (token_id,device_id,device_name,os,agents,installs,last_seen_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(token_id,device_id) DO UPDATE SET device_name=excluded.device_name,os=excluded.os,agents=excluded.agents,installs=excluded.installs,last_seen_at=excluded.last_seen_at',u.id,b.deviceId,b.name,String(b.os||'unknown').slice(0,80),JSON.stringify(b.agents),JSON.stringify(b.installs),now());
       return json({ok:true});
     }
@@ -198,21 +211,22 @@ export async function handler(request,env){
     }
     m=/^\/api\/projects\/([^/]+)\/skills\/([^/]+)\/(rollback|download|versions)$/.exec(path);
     if(m){const p=slug(m[1]),s=slug(m[2]),action=m[3];access(u,p);
+      const current=await latestVersion(env,p,s);if(!current)fail('Skill not found',404);readSkill(u,p,current.visibility,current.published_visibility);
       if(method==='POST'&&action==='rollback')return await rollback(request,env,u,p,s);
-      if(method==='GET'&&action==='versions')return json({versions:await queryAll(env.DB,'SELECT version,artifact_digest AS digest,created_at FROM skill_versions WHERE project_slug=? AND slug=? ORDER BY version DESC',p,s)});
+      if(method==='GET'&&action==='versions')return json({versions:await queryAll(env.DB,`SELECT version,artifact_digest AS digest,created_at FROM skill_versions WHERE project_slug=? AND slug=? ${sharedOnly(u)?"AND published_visibility='public'":''} ORDER BY version DESC`,p,s)});
       if(method==='GET'&&action==='download'){const row=await latestVersion(env,p,s);if(!row)fail('Skill not found',404);return await zipDownload(env,row);}
     }
     m=/^\/api\/projects\/([^/]+)\/skills\/([^/]+)\/versions\/([0-9]+)\/(download|file)$/.exec(path);
     if(m&&method==='GET'){
       const p=slug(m[1]),s=slug(m[2]);access(u,p);
-      const row=await latestVersion(env,p,s,Number(m[3]));if(!row)fail('Version not found',404);
+      const row=await latestVersion(env,p,s,Number(m[3]));if(!row)fail('Version not found',404);readSkill(u,p,row.visibility,row.published_visibility);
       if(m[4]==='download')return await zipDownload(env,row);
       const relative=url.searchParams.get('path');return plain(await fileBody(env,row,relative),mime(relative));
     }
     m=/^\/api\/projects\/([^/]+)\/skills\/([^/]+)\/versions\/([0-9]+)$/.exec(path);
     if(m&&method==='GET'){
       const p=slug(m[1]),s=slug(m[2]);access(u,p);const version=Number(m[3]);
-      const row=await latestVersion(env,p,s,version);if(!row)fail('Version not found',404);
+      const row=await latestVersion(env,p,s,version);if(!row)fail('Version not found',404);readSkill(u,p,row.visibility,row.published_visibility);
       return json(await versionPayload(env,row,p,s,version,url.searchParams.get('format')==='manifest'));
     }
     m=/^\/api\/projects\/([^/]+)\/skills\/([^/]+)$/.exec(path);
