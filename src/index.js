@@ -126,7 +126,7 @@ async function wellKnown(req,env,u){
 export async function handler(request,env){
   try{
     const url=new URL(request.url),path=url.pathname,method=request.method.toUpperCase();
-    if(method==='GET'&&path==='/healthz')return json({ok:true,app:'cloudskill-hub',version:'0.3.2'},200,true);
+    if(method==='GET'&&path==='/healthz')return json({ok:true,app:'cloudskill-hub',version:'0.3.3'},200,true);
     const authResponse=await authRoutes(request,env,readJson,json);
     if(authResponse)return authResponse;
     if(method==='GET'&&path.startsWith('/.well-known/'))return await wellKnown(request,env);
@@ -169,7 +169,7 @@ export async function handler(request,env){
       admin(u);return json({tokens:await queryAll(env.DB,`SELECT id,label,CASE WHEN role='client' AND can_publish=1 THEN 'publisher' ELSE role END AS role,project_scope,created_at,revoked_at,expires_at,last_used_at FROM access_tokens WHERE credential_type='api' ORDER BY created_at DESC`)});
     }
     if(method==='POST'&&path==='/api/tokens'){
-      recent(u);const b=await readJson(request,4096);const token=await issueToken(env,b.label,b.role,b.projects||[],b.expiresInDays??90);
+      recent(u);const b=await readJson(request,4096);const token=await issueToken(env,b.label,b.role,b.projects||[],b.expiresInDays);
       await audit(env,u.label,'issue_token',{role:b.role,label:b.label});return json(token,201);
     }
     let m=/^\/api\/tokens\/([a-zA-Z0-9_-]+)\/revoke$/.exec(path);

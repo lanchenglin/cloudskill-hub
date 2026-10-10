@@ -3,6 +3,7 @@ import {randomBytes,timingSafeEqual} from 'node:crypto';
 import {tokenHash,randomId,slug,now} from './core.js';
 import {hashPassword,hashInitialPassword,INITIAL_ADMIN_PASSWORD,verifyPassword,validatePassword,validateUsername} from './password.js';
 import {problem} from '../public/lib/policy.js';
+import {validateTokenDays} from './token-policy.js';
 const one=(db,sql,...a)=>db.prepare(sql).bind(...a).first();
 const run=(db,sql,...a)=>db.prepare(sql).bind(...a).run();
 const HOURS=3600000;
@@ -117,9 +118,9 @@ export async function issueToken(env,label,role,projects,days=90){
   if(!['client','publisher'].includes(role))throw problem('New API tokens must be client or publisher; use the website for administration');
   if(!Array.isArray(projects)||!projects.length||projects.length>50)throw problem('Choose 1–50 projects');
   projects=[...new Set(projects.map(slug))];
-  if(!Number.isInteger(days)||days<1||days>365)throw problem('Token lifetime must be 1–365 days');
+  days=validateTokenDays(days);
   for(const p of projects)if(!await one(env.DB,'SELECT slug FROM projects WHERE slug=?',p))throw problem('Unknown project '+p);
-  const token=randomId('csh_'),id=randomId('t_'),expiresAt=new Date(Date.now()+days*24*HOURS).toISOString();
+  const token=randomId('csh_'),id=randomId('t_'),expiresAt=days===null?null:new Date(Date.now()+days*24*HOURS).toISOString();
   await run(env.DB,`INSERT INTO access_tokens (id,label,token_hash,role,project_scope,created_at,can_publish,credential_type,expires_at)
     VALUES (?,?,?,'client',?,?,?,'api',?)`,id,label.trim(),await tokenHash(token),JSON.stringify(projects),now(),role==='publisher'?1:0,expiresAt);
   return {id,token,role,projects,expiresAt};

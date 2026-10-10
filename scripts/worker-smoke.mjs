@@ -50,8 +50,13 @@ try{
   assert.match(cookie,/^csh_dev_session=/);
   assert.equal((await api('/api/auth/session')).username,'native-admin');
   await api('/api/projects','POST',{slug:'devops',title:'Native test'});
-  const publisher=(await api('/api/tokens','POST',{label:'A',role:'publisher',projects:['devops']})).token;
-  const token=(await api('/api/tokens','POST',{label:'B',role:'client',projects:['devops']})).token;
+  const pubRecord=await api('/api/tokens','POST',{label:'A',role:'publisher',projects:['devops'],expiresInDays:null});
+  const readerRecord=await api('/api/tokens','POST',{label:'B',role:'client',projects:['devops'],expiresInDays:null});
+  assert.equal(pubRecord.expiresAt,null);assert.equal(readerRecord.expiresAt,null);
+  const publisher=pubRecord.token,token=readerRecord.token;
+  assert.equal((await api('/api/me','GET',null,token)).expiresAt,null);
+  const finite=await api('/api/tokens','POST',{label:'Finite',role:'client',projects:['devops'],expiresInDays:30});
+  assert.ok(Date.parse(finite.expiresAt)>Date.now()+29*86400000);
   const source=path.join(temp,'source');await fs.mkdir(path.join(source,'assets'),{recursive:true});
   await fs.writeFile(path.join(source,'SKILL.md'),'---\nname: native-test\ndescription: Verify actual local Worker streams.\n---\n# Native\n');
   const bytes=randomBytes(7*1024*1024);await fs.writeFile(path.join(source,'assets','data.bin'),bytes);
@@ -60,6 +65,9 @@ try{
   const installed=await install(identity,'devops','native-test',['claude','codex','hermes']);assert.equal(installed.length,3);
   assert.deepEqual(await fs.readFile(path.join(targetFor('native-test','hermes'),'assets','data.bin')),bytes);
   const noOp=await publishSource({url,token:publisher},'devops',source);assert.equal(noOp.unchanged,true);
+  await api('/api/tokens/'+pubRecord.id+'/revoke','POST',{});
+  assert.equal((await fetch(url+'/api/me',{headers:{Authorization:'Bearer '+publisher}})).status,401);
+  assert.equal((await api('/api/me','GET',null,token)).role,'client');
   await api('/api/uploads/cleanup','POST',{});
   await api('/api/auth/password','POST',{currentPassword:password,newPassword:'Native changed test password 67890'});
   assert.equal((await fetch(url+'/api/auth/session',{headers:{Cookie:cookie}})).status,401);
@@ -73,7 +81,7 @@ try{
   assert.ok(!recovery.stdout.includes('Native recovered test password'));
   await api('/api/auth/login','POST',{username:'native-admin',password:'Native recovered test password 24680'});
   await api('/api/auth/logout','POST',{});
-  console.log('PASS: native workerd scrypt, default login/forced activation/rotation/logout/recovery CLI, scoped publisher + reader, D1 migrations, 7 MiB R2 upload, 3-agent install, idempotence and cleanup');
+  console.log('PASS: native workerd scrypt, default login/forced activation/rotation/logout/recovery CLI, permanent scoped tokens + finite token + independent revocation, D1 migrations, 7 MiB R2 upload, 3-agent install, idempotence and cleanup');
 }catch(error){console.error(logs);throw error;}
 finally{
   if(child&&child.exitCode===null){try{process.platform==='win32'?child.kill():process.kill(-child.pid,'SIGTERM');}catch{}await new Promise(r=>{if(child.exitCode!==null)return r();const t=setTimeout(r,5000);child.once('exit',()=>{clearTimeout(t);r();});});if(child.exitCode===null){try{process.platform==='win32'?child.kill('SIGKILL'):process.kill(-child.pid,'SIGKILL');}catch{}}}

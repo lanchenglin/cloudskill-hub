@@ -93,3 +93,57 @@ test('trusted recovery SQL invalidates web sessions, supports explicit token rev
     assert.equal(t.f.db.prepare('SELECT username FROM web_admin').get().username,'renamed-admin');
   }finally{await t.close();}
 });
+
+
+test('AI initializer can create permanent A/B tokens and reports their actual lifetime on rerun',async()=>{
+  const t=await initializationFixture();try{
+    t.options.tokenDays=null;
+    const result=await completeInitialization(t);
+    assert.equal(result.status,'ready');
+    const before={};
+    for(const key of ['publisher','reader']){
+      before[key]=await fs.readFile(result[key],'utf8');
+      const record=JSON.parse(before[key]);assert.equal(record.expiresAt,null);
+      assert.equal((await api(t.f.env,'/api/me','GET',null,record.token)).data.expiresAt,null);
+    }
+    t.output.length=0;
+    // Changing this option does not silently reissue or shorten existing credentials.
+    assert.equal((await initialize({...t.options,tokenDays:30})).status,'ready');
+    for(const key of ['publisher','reader'])assert.equal(await fs.readFile(result[key],'utf8'),before[key]);
+    assert.equal(t.f.db.prepare("SELECT COUNT(*) AS n FROM access_tokens WHERE credential_type='api'").get().n,2);
+    const log=t.output.join('\n');
+    assert.match(log,/publisher: never \(until manually revoked\)/);
+    assert.match(log,/client: never \(until manually revoked\)/);
+    assert.ok(!log.includes('expire after 90 days'));
+    for(const key of ['publisher','reader'])assert.ok(!log.includes(JSON.parse(before[key]).token));
+    assert.equal(t.f.db.prepare('SELECT COUNT(*) AS n FROM web_sessions').get().n,0);
+  }finally{await t.close();}
+});
+
+test('requesting permanent tokens does not extend an already issued finite pair',async()=>{
+  const t=await initializationFixture();try{
+    const result=await completeInitialization(t),before={};
+    for(const key of ['publisher','reader']){
+      before[key]=await fs.readFile(result[key],'utf8');
+      assert.ok(Date.parse(JSON.parse(before[key]).expiresAt)>Date.now()+89*86400000);
+    }
+    t.output.length=0;
+    assert.equal((await initialize({...t.options,tokenDays:null})).status,'ready');
+    for(const key of ['publisher','reader']){
+      assert.equal(await fs.readFile(result[key],'utf8'),before[key]);
+      assert.ok(t.output.join('\n').includes(JSON.parse(before[key]).expiresAt));
+    }
+    assert.ok(!t.output.join('\n').includes('never (until manually revoked)'));
+    assert.equal(t.f.db.prepare("SELECT COUNT(*) AS n FROM access_tokens WHERE credential_type='api'").get().n,2);
+  }finally{await t.close();}
+});
+
+test('invalid initializer lifetimes fail before any network request or account file is written',async()=>{
+  const t=await initializationFixture();try{
+    let requests=0;
+    for(const tokenDays of [0,-1,366,1.5,false,'never','90'])
+      await assert.rejects(initialize({...t.options,tokenDays,fetch:async()=>{requests++;throw Error('Network must not run');}}),/Token lifetime/);
+    assert.equal(requests,0);
+    assert.deepEqual(await fs.readdir(t.dir),['bootstrap.json']);
+  }finally{await t.close();}
+});

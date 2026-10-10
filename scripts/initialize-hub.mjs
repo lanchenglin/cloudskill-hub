@@ -5,6 +5,7 @@ import path from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {validatePassword,validateUsername,INITIAL_ADMIN_PASSWORD} from '../src/password.js';
 import {hubOrigin} from '../cli/manager.mjs';
+import {validateTokenDays,parseTokenDaysOption} from '../src/token-policy.js';
 function initialPassword(value){if(value!==INITIAL_ADMIN_PASSWORD)validatePassword(value);return value;}
 const root=fileURLToPath(new URL('../',import.meta.url));
 async function read(file){
@@ -19,6 +20,8 @@ async function save(file,data){
   const h=await fs.open(file,'wx',0o600);try{await h.writeFile(JSON.stringify(data,null,2)+'\n');await h.sync();}finally{await h.close();}
 }
 export async function initialize(options){
+  const tokenDays=validateTokenDays(options.tokenDays);
+  const expiryDescriptions=[];
   const url=hubOrigin(options.url),dir=path.resolve(options.dir);outside(dir);
   const fetcher=options.fetch||globalThis.fetch,report=options.report||console.log;
   await fs.mkdir(dir,{recursive:true,mode:0o700});
@@ -105,12 +108,14 @@ export async function initialize(options){
       if(!credential){
         const known=await api('/api/tokens');
         if(known.tokens.some(t=>t.label===label&&!t.revoked_at))throw Error(`A ${role} token exists but its saved value is missing; explicitly revoke/replace it in the website`);
-        const created=await api('/api/tokens','POST',{label,role,projects:['personal'],expiresInDays:90});
+        const created=await api('/api/tokens','POST',{label,role,projects:['personal'],expiresInDays:tokenDays});
         credential={url,...created};await save(file,credential);
       }
       if(credential.url!==url||!/^csh_[a-f0-9]{48}$/.test(credential.token||'')||credential.role!==role)throw Error('Invalid saved client credential');
       const me=await api('/api/me','GET',undefined,credential.token);
       if(me.role!==role||me.projects.length!==1||me.projects[0]!=='personal')throw Error('Client permission verification failed');
+      // Report actual server metadata, not the requested lifetime of newly issued tokens.
+      expiryDescriptions.push(role+': '+(me.expiresAt===null?'never (until manually revoked)':me.expiresAt||'unknown; verify on the website'));
     }
     // Explicitly end this installer's web session; do not save cookies next to long-lived credentials.
     await api('/api/auth/logout','POST',{});cookie='';csrfToken='';
@@ -119,7 +124,8 @@ export async function initialize(options){
     report('Web password file: '+paths.admin);
     report('A project-publisher token file: '+paths.publisher);
     report('B read-only token file: '+paths.reader);
-    report('No password/token printed. Client tokens expire after 90 days; replace from the website when needed.');
+    report('Client token expiry: '+expiryDescriptions.join('; '));
+    report('No password/token printed. Existing tokens are reused without changing their expiry. All tokens remain manually revocable.');
     return {...paths,status:'ready'};
   }finally{
     if(cookie&&csrfToken){try{await api('/api/auth/logout','POST',{});}catch{report('Warning: installer logout could not be confirmed; the session is time-limited.');}}
@@ -128,16 +134,16 @@ export async function initialize(options){
 }
 function argumentsOf(args){
   const result={url:process.env.CSH_HUB_URL,dir:process.env.CSH_DEPLOY_DIR};
-  const keys={'--url':'url','--credentials-dir':'dir','--username':'username','--password-file':'passwordFile','--legacy-admin-file':'legacyAdminFile'};
+  const keys={'--url':'url','--credentials-dir':'dir','--username':'username','--password-file':'passwordFile','--legacy-admin-file':'legacyAdminFile','--token-days':'tokenDays'};
   for(let i=0;i<args.length;i++){
     if(args[i]==='--help'){result.help=true;continue;}
-    const field=keys[args[i]];if(!field||!args[i+1]||args[i+1].startsWith('--'))throw Error('Unknown or incomplete option: '+args[i]);result[field]=args[++i];
+    const field=keys[args[i]];if(!field||!args[i+1]||args[i+1].startsWith('--'))throw Error('Unknown or incomplete option: '+args[i]);const value=args[++i];result[field]=field==='tokenDays'?parseTokenDaysOption(value):value;
   }
   return result;
 }
 if(process.argv[1]&&pathToFileURL(path.resolve(process.argv[1])).href===import.meta.url){
   (async()=>{const o=argumentsOf(process.argv.slice(2));
-    if(o.help){console.log('Usage: node scripts/initialize-hub.mjs --url https://YOUR-HUB --credentials-dir /PRIVATE/DIRECTORY [--username admin] [--password-file /PRIVATE/account.json] [--legacy-admin-file /PRIVATE/owner.json]\nCreates a first-login account, then stops until its password is changed (exit 2). Rerun with the verified new password to create the personal project and A/B tokens. Credentials stay outside Git. Not a Cloudflare deployment command.');return;}
+    if(o.help){console.log('Usage: node scripts/initialize-hub.mjs --url https://YOUR-HUB --credentials-dir /PRIVATE/DIRECTORY [--username admin] [--password-file /PRIVATE/account.json] [--legacy-admin-file /PRIVATE/owner.json] [--token-days never|1-365]\nToken lifetime applies only to newly issued A/B tokens (default 90 days); never means no expiry, still revocable.\nCreates a first-login account, then stops until its password is changed (exit 2). Rerun with the verified new password to create the personal project and A/B tokens. Credentials stay outside Git. Not a Cloudflare deployment command.');return;}
     if(!o.url||!o.dir)throw Error('Provide the verified Hub URL and an external private credential directory');const result=await initialize(o);if(result.status==='password_change_required')process.exitCode=2;
   })().catch(error=>{console.error('Initialization stopped:',error.message);process.exitCode=1;});
 }

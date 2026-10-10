@@ -73,7 +73,9 @@ node scripts/initialize-hub.mjs --url https://YOUR-HUB --credentials-dir /YOUR/P
 | A：发布修改 | publisher | personal |
 | B/C：读取、更新 | client | personal |
 
-发布者只发布私有技能，不能管理用户、项目分类或 Token，也不能公开技能。Token 默认 90 天到期，可配置 1–365 天；每台设备单独签发，便于撤销。
+发布者只发布私有技能，不能管理用户、项目分类或 Token，也不能公开技能。Token 默认 90 天，网页可选 30 / 90 / 365 天或“永久有效（直到手动撤销）”；接口也支持 1–365 天。每台设备单独签发，便于撤销。永久只是不按时间到期，项目权限和撤销检查不变。
+
+AI 在完成首次改密后继续配置 A/B 时，可给 `scripts/initialize-hub.mjs` 增加 `--token-days never`；它仅作用于新签发的 Token，已保存的 Token 继续复用，不更改原到期时间。不给参数仍默认 90 天。
 
 ## 6. 安装客户端与验收
 

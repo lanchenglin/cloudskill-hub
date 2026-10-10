@@ -1,8 +1,9 @@
-CloudSkill Hub current application: 0.3.2
+CloudSkill Hub current application: 0.3.3
 This is an index of actual local checks, not a fabricated raw execution log.
-Node 24.18.1: npm run check, 65 passed, 0 failed.
-Native local workerd + D1 + R2: default login, mandatory password change without setup proof, scoped tokens, 7 MiB publish/install and recovery passed.
+Node 24.18.1: npm run check, 75 passed, 0 failed.
+Native local workerd + D1 + R2: default login, mandatory password change without setup proof, permanent/finite scoped tokens + revocation, 7 MiB publish/install and recovery passed.
 Chromium: required password change, reload/re-login/Escape/API rejection, no setup-proof field or request parameter, upload/edit/download and mobile layout passed.
 Cross-platform CI: consult the workflow run for the exact current commit.
 Production Cloudflare deployment: NOT performed.
 Scope: docs/TEST_RESULTS.md
+Token lifetime: explicit null is permanent; omission is 90 days; initializer --token-days never and existing-token reuse verified.

@@ -53,7 +53,7 @@
 | GET | `/api/projects/{p}/skills/{s}/download` | 最新 ZIP；对一致性敏感的客户端应使用版本固定地址 |
 | POST | `/api/projects/{p}/skills/{s}/rollback` | 管理员或项目发布者，`{version,baseVersion?}` 创建新的历史引用版本 |
 | GET | `/api/tokens` | 管理员查看令牌元信息，不返回已有令牌明文 |
-| POST | `/api/tokens` | 管理员，`{label,role,projects,expiresInDays?}`；role=publisher/client，有效期1–365天，默认90天 |
+| POST | `/api/tokens` | 管理员，`{label,role,projects,expiresInDays?}`；role=publisher/client；expiresInDays 为 1–365 整数或 null（永久），省略默认90天 |
 | POST | `/api/tokens/{id}/revoke` | 管理员撤销其他令牌 |
 | GET | `/api/devices` | 管理员查看客户端最后上报 |
 | POST | `/api/devices/heartbeat` | 客户端上报已授权项目的安装清单 |
@@ -67,7 +67,7 @@
 
 ```json
 {
-  "version": "0.3.2",
+  "version": "0.3.3",
   "uploadProtocol": 2,
   "limits": {
     "maxFiles": 1000,
@@ -166,6 +166,14 @@ GET /.well-known/agent-skills/{skill}/{archiveDigest}.zip
 ## 权限与会话补充
 
 Cookie 管理员超过最近验证时限时，签发/撤销操作返回 403 `reauth_required`；网页先调用 reauth，再重试。新 Token 返回 `{id,token,role,projects,expiresAt}`，明文只出现一次；列表含 `expires_at`、`last_used_at`，不返回 Token。新建 admin API Token 请求被拒绝。旧 API Token 可兼容直到到期或撤销。
+
+永久 Token 请求示例（需要已完成首次改密的管理员鉴权；Cookie 请求仍要 CSRF）：
+
+```json
+{"label":"Hermes-A","role":"publisher","projects":["personal"],"expiresInDays":null}
+```
+
+`expiresInDays` **省略为 90 天，显式 null 为永久**，两者不同。1–365 整数保留；0、366、字符串 "never" / "null"、布尔值、空字符串等返回 400，不签发令牌。永久令牌的签发响应和 `/api/me` 均返回 `expiresAt: null`，列表返回 `expires_at: null`。它仍可单独撤销/批量撤销，不改变角色、项目范围、网页登录与上传会话的超时规则。不要把 null 解析为 0 天或 90 天。
 
 发布者禁止创建 public 包或编辑已公开 Skill；权限检查同时覆盖 JSON、ZIP 会话、上传、finalize 和回滚。web 身份的上传会话绑定内部管理员主体，不是 Cookie 原值；同一管理员重新登录可续接。
 

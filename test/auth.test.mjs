@@ -142,7 +142,7 @@ test('sensitive token operations require recent password verification and explic
   }finally{f.close();}
 });
 
-test('new tokens are scoped, expiring publisher/client only; no internal web identity in token listings',async()=>{
+test('finite tokens are scoped publisher/client only; no internal web identity in token listings',async()=>{
   const f=fixture();try{
     const s=await fresh(f.env);await project(f.env,s);
     for(const body of [{role:'admin',projects:[]},{role:'publisher',projects:[]},{role:'publisher',projects:['missing']},

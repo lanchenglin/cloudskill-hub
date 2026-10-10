@@ -5,7 +5,7 @@
 [![CI](https://github.com/lanchenglin/cloudskill-hub/actions/workflows/ci.yml/badge.svg)](https://github.com/lanchenglin/cloudskill-hub/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-当前版本 **0.3.2**，使用 `main` 的完整代码。只需安装当前版本，不需要依次安装开发阶段的中间版本。
+当前版本 **0.3.3**，使用 `main` 的完整代码。只需安装当前版本，不需要依次安装开发阶段的中间版本。
 
 **网页用管理员账号和密码；客户端用独立 Token。** A 使用指定项目的 `publisher` 发布令牌，B 使用 `client` 只读令牌。不再需要把全站管理员权限交给每套 Hermes。
 
@@ -86,7 +86,9 @@ AI 初始化把初始账号保存到 `web-admin.json`，返回 `password_change_
 
 新密码要求 15–128 字符，必须不同于初始密码，支持空格和 Unicode；`lanchenglin` 只在初始化哈希时例外，普通改密和可信恢复不接受短密码。使用原生 scrypt 与独立随机盐保存哈希。网页用 HttpOnly / Secure / SameSite Cookie，不把长期管理员 API Token 放进浏览器存储。会话有 12 小时绝对期限、30 分钟空闲期限；退出立即撤销当前会话。改密码撤销全部网页会话，**不会自动撤销客户端 Token**；疑似泄露时另外执行撤销。
 
-新 Token 默认 90 天有效，可选择 1–365 天、逐个撤销；到期后在网页重新签发并更新客户端。已有 API Token 的兼容、重新验证、可信恢复和安全限制见 [AUTH.md](docs/AUTH.md)。
+**Token 可选“永久有效（直到手动撤销）”。** 网页保留 30 / 90 / 365 天并新增永久选项；不主动选择时仍默认 90 天。接口支持 1–365 天或显式 `expiresInDays: null`（永久），永久令牌的 `expiresAt` / 数据库 `expires_at` 为 null，不用伪造一个很远的日期。永久不增加权限、不延长网页登录会话；A 的 publisher 和 B 的 client 都可使用，随时可以单独撤销。
+
+已有 Token 不会因升级自动变为永久。需要永久时在网页新建永久 Token，并在对应客户端重新 login；确认新 Token 可用后再撤销旧的。AI 初始化脚本可用 `--token-days never` 为新创建的 A/B Token 选择永久，默认仍是 90 天；重跑复用的旧 Token 不会被改期限。详见 [AUTH.md](docs/AUTH.md) 和 [AI_DEPLOY.md](AI_DEPLOY.md)。
 
 **密码哈希会消耗 CPU。** 本地 workerd 验证了兼容性，但不代表免费套餐已通过线上 CPU 验收；建议在 Workers Paid 评估生产部署。AI 不得擅自升级套餐，也不得降低密码哈希参数来掩盖配额问题。
 

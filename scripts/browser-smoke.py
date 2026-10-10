@@ -71,9 +71,36 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             page.locator('#projectForm button[type="submit"]').click()
             page.locator('#tokenScope input[value="devops"]').wait_for()
             page.locator('#tokenLabel').fill('Hermes-A');page.locator('#tokenRole').select_option('publisher')
-            page.locator('#tokenScope input[value="devops"]').check();page.locator('#tokenForm button[type="submit"]').click()
+            page.locator('#tokenScope input[value="devops"]').check()
+            assert page.locator('#tokenDays').input_value() == '90'
+            page.locator('#tokenDays').select_option('never')
+            with page.expect_response(lambda response: response.url.endswith('/api/tokens') and response.request.method == 'POST') as issued_response:
+                page.locator('#tokenForm button[type="submit"]').click()
+            permanent=issued_response.value.json()
+            assert issued_response.value.status == 201 and permanent['expiresAt'] is None
+            assert issued_response.value.request.post_data_json['expiresInDays'] is None
+            page.locator('#tokensList .row-card').filter(has_text='Hermes-A').filter(has_text='永久有效').wait_for()
+            page.locator('#tokenLabel').fill('Hermes-B');page.locator('#tokenRole').select_option('client')
+            page.locator('#tokenDays').select_option('30')
+            with page.expect_response(lambda response: response.url.endswith('/api/tokens') and response.request.method == 'POST') as finite_response:
+                page.locator('#tokenForm button[type="submit"]').click()
+            finite=finite_response.value.json()
+            assert finite_response.value.status == 201 and isinstance(finite['expiresAt'],str)
+            assert finite_response.value.request.post_data_json['expiresInDays'] == 30
             page.locator('#issuedValue').filter(has_text='csh_').wait_for()
             page.locator('#tokensList').filter(has_text='发布者').wait_for()
+            page.reload();page.locator('#dashboard').wait_for(state='visible')
+            page.locator('[data-view="security"]').click()
+            permanent_row=page.locator('#tokensList .row-card').filter(has_text='Hermes-A')
+            permanent_row.filter(has_text='永久有效').wait_for()
+            assert page.request.get(creds['url']+'/api/me',headers={'Authorization':'Bearer '+permanent['token']}).status == 200
+            page.once('dialog',lambda dialog: dialog.accept())
+            with page.expect_response(lambda response: response.url.endswith('/api/tokens/'+permanent['id']+'/revoke')) as revoked_response:
+                permanent_row.get_by_role('button',name='撤销',exact=True).click()
+            assert revoked_response.value.status == 200
+            page.locator('#tokensList .row-card').filter(has_text='Hermes-A').filter(has_text='已撤销').wait_for()
+            assert page.request.get(creds['url']+'/api/me',headers={'Authorization':'Bearer '+permanent['token']}).status == 401
+            assert page.request.get(creds['url']+'/api/me',headers={'Authorization':'Bearer '+finite['token']}).status == 200
             page.locator('#dashboard').wait_for(state='visible')
             page.locator('[data-view="publish"]').click()
             page.locator('#uploadLimits').filter(has_text='50 MiB').wait_for()
@@ -128,7 +155,7 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             assert page.locator('#dashboard').is_hidden()
             assert not errors,errors
             browser.close()
-        print('PASS: Chromium default password, mandatory first change without bootstrap proof (refresh/re-login/Escape/API rejection), HttpOnly session reload, publisher issuance, ZIP upload/edit/download, password change/logout, unsafe ZIP rejection and mobile layout')
+        print('PASS: Chromium default password, mandatory first change without bootstrap proof (refresh/re-login/Escape/API rejection), HttpOnly session reload, permanent/finite token issuance and revocation, ZIP upload/edit/download, password change/logout, unsafe ZIP rejection and mobile layout')
     finally:
         server.terminate()
         try: server.wait(timeout=5)

@@ -19,6 +19,8 @@
 
 ## 1. 目标和边界
 
+本项目当前是个人自用。暂不增加性能扩展、并发队列或容量治理功能；保留正常功能检查和已有安全约束，不因此改动哈希强度或购买套餐。Token 可明确选择永久，按下面参数执行即可。
+
 默认一个 Worker `cloudskill-hub`、D1 `cloudskill_hub`、私有 R2 `cloudskill-hub`；binding 保持 `DB` / `BUCKET` / `ASSETS`。没有域名时用本次 Wrangler 返回的 workers.dev HTTPS 地址，不猜子域名。初始项目 personal / 个人技能。
 
 网页账号初次可自定义，AI 脚本默认 admin / lanchenglin。所有新账号第一次登录必须改密，正式新密码至少 15 字符；固定初始值不能当长期密码。不要再使用旧的 `/api/bootstrap` 或 owner.json 管理员 Token 模式。新的凭据输出为 web-admin.json、publisher-a.json、client-b.json。
@@ -170,6 +172,18 @@ node scripts/initialize-hub.mjs --url "$CSH_HUB_URL" --credentials-dir "$CSH_DEP
 ```
 
 脚本登录验证成功后才更新本地 web-admin.json，检查 mustChangePassword 已为 false，再创建 personal / A 的 publisher / B 的 client，验证授权范围并退出。错误密码不会覆盖已有账号记录，旧默认密码不能重置远端；已存在但丢失明文的 Token 需明确撤销/替换，不重复签发。
+
+### 个人自用：可选择永久 A/B Token
+
+用户要求永久时，在**完成首次改密后的继续初始化命令**加 `--token-days never`：
+
+```bash
+node scripts/initialize-hub.mjs --url "$CSH_HUB_URL" --credentials-dir "$CSH_DEPLOY_DIR" --password-file /PRIVATE/new-password.json --token-days never
+```
+
+`never` 转换为接口 `expiresInDays: null`；`--token-days 30` 等支持 1–365 天，不给参数默认 90 天。这不绕过首次改密，不在第一阶段创建令牌。每次执行的选项仅影响当次**新签发**的 Token；重跑发现已保存且有效的 Token 时继续复用，不自动延长为永久、不撤销重发。脚本报告服务器实际期限，永久显示 `never (until manually revoked)`，定期显示实际日期。
+
+不要把永久理解为全站权限、永不撤销或永不掉线。项目范围、撤销与网页会话期限仍生效；交付文件的 `expiresAt` 为 null 时明确报告“永久有效，可手动撤销”。已有定期 Token 需要变更时通过网页重新签发并重新配置，不擅自改数据库。
 
 交付目录（权限 0700，文件 0600，Windows 核实 ACL）：
 
