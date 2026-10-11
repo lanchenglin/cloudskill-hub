@@ -117,7 +117,7 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             page.locator('#issuedValue').filter(has_text='csh_').wait_for()
             check_issued_token_usage(page,finite)
             page.locator('#tokensList').filter(has_text='修改共享技能').wait_for()
-            page.locator('#closeTokenCreate').click()
+            assert page.locator('#tokenCreateDialog').is_hidden()  # The usage shortcut already closed it.
             page.reload();page.locator('#dashboard').wait_for(state='visible')
             page.locator('[data-view="security"]').click()
             permanent_row=page.locator('#tokensList .row-card').filter(has_text='Shared-editing')

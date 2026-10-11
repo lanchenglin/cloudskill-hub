@@ -51,7 +51,7 @@ test('public quick help never needs a token and is a single short instruction',(
 });
 test('both help surfaces fold the old wizard; token entry and generated credentials are explicit',()=>{
   const html=fs.readFileSync(new URL('../public/index.html',import.meta.url),'utf8');
-  const ui=fs.readFileSync(new URL('../public/lib/usage-ui.js',import.meta.url),'utf8');
+  const ui=fs.readFileSync(new URL('../public/lib/usage-ui.js',import.meta.url),'utf8').replaceAll('\r\n','\n');
   const app=fs.readFileSync(new URL('../public/app.js',import.meta.url),'utf8');
   assert.ok(html.includes('复制给 AI（含令牌）'));assert.ok(html.includes('复制配置（含令牌）'));assert.ok(html.includes('id="useIssued"'));
   assert.match(ui,/<details class="guide-advanced" data-guide="advanced">/);assert.ok(ui.includes('function selectSkill(skill){\n    get(\'advanced\').open=true;'));
