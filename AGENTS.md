@@ -37,3 +37,5 @@ main 用于开发/测试，worker 是固定发布分支。ci.yml 在 main push �
 新签发访问令牌必须可再次查看：认证继续用哈希，D1保存AES-256-GCM加密副本，TOKEN_ENCRYPTION_KEY作为独立长期Worker Secret。不要写入Git或vars、不要每次构建重新生成、不要随BOOTSTRAP_SECRET清理。AI部署按AI_DEPLOY.md准备/复用仓库外token-encryption.json，但仍不得自动签发Token。旧hash-only Token不可逆，不重置或自动补发；后台只由网页管理员显式查看一个值。
 
 网页导航：令牌在访问权限中管理/弹窗新建；项目分类和账号设置独立。顶部退出入口需桌面/手机可见，所有退出入口共用原 Cookie 退出流程。布局维护不得修改两种令牌权限、永久有效、6–20密码或首次改密规则；浏览器验收由 scripts/browser-smoke.py 及其 settings_checks/logout_checks 辅助检查完成。
+
+使用说明由 public/lib/usage-guide.js（纯文本/命令）、public/lib/usage-ui.js（界面）维护，后台help与匿名/usage.html共用；/usage.md只返回基于当前origin生成的公开说明，不读取凭据/私有catalog。生成的提示词不包含Token值，默认不安装所有工具，不添加--force，不把客户端安装变成Cloudflare部署。客户端路径适配本轮不改动。

@@ -1,3 +1,4 @@
+import {mountUsageGuide} from './lib/usage-ui.js';
 import {unpack,verifyPackage,validatePackageManifest,boundedBytes} from './lib/archive.js';
 import {validateEntries,HARD_LIMITS,MiB} from './lib/policy.js';
 import {frontmatter} from './lib/metadata.js';
@@ -5,6 +6,7 @@ import {publishBrowser} from './lib/browser-upload.js';
 import {MIN_PASSWORD_LENGTH,MAX_PASSWORD_LENGTH,validatePassword,validateNewPassword} from './lib/password-policy.js';
 import {TOKEN_ROLES,STATUS_LABELS,tokenStatus,tokenSummary,filterTokens,displayDate,tokenLifetime} from './lib/access-ui.js';
 const $ = id => document.getElementById(id);
+const usageGuide=mountUsageGuide($('usageGuide'),{origin:location.origin});
 function passwordInputs(formId,firstId,againId,initial=false){
   const first=$(firstId),again=$(againId),validate=initial?validatePassword:validateNewPassword;
   function refresh(){
@@ -28,7 +30,7 @@ passwordInputs('passwordForm','newPassword','newPasswordAgain');
 sessionStorage.removeItem('csh-token'); // Retire old long-lived browser API credentials.
 const state = {csrfToken:'',me:null,projects:[],skills:[],devices:[],view:'library',authStatus:null,mustChangePassword:false};
 let toastTimer,sessionGeneration=0,loggingOut=false;
-const VIEW_TITLES={library:'技能仓库',publish:'发布技能',projects:'项目分类',devices:'客户端设备',security:'访问权限',account:'账号设置'};
+const VIEW_TITLES={library:'技能仓库',publish:'发布技能',projects:'项目分类',devices:'客户端设备',security:'访问权限',account:'账号设置',help:'使用说明'};
 state.tokens=[];state.tokenStorageReady=false;
 function toast(message,bad=false){const el=$('toast');el.textContent=message;el.className=bad?'bad':'';el.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.style.display='none',4500);}
 function node(tag,className,text){const el=document.createElement(tag);if(className)el.className=className;if(text!==undefined)el.textContent=String(text);return el;}
@@ -58,6 +60,7 @@ function authUi(active){
   document.querySelectorAll('.nav-item,[data-go]').forEach(el=>el.disabled=!active||restricted);
 }
 function clearLogin(){
+  usageGuide.clear();
   sessionGeneration++;clearVisibleTokens();
   state.tokens=[];state.tokenStorageReady=false;state.view='library';
   $('tokenSearch').value='';$('tokenRoleFilter').value='';$('tokenStatusFilter').value='';
@@ -138,7 +141,7 @@ function renderProjects(){
   }
 }
 function projectOptions(select,placeholder=false){const current=select.value;select.replaceChildren();if(placeholder){const opt=node('option',null,'全部项目');opt.value='';select.append(opt);}for(const p of state.projects){const opt=node('option',null,p.title+' · '+p.slug);opt.value=p.slug;select.append(opt);}if([...select.options].some(x=>x.value===current))select.value=current;}
-function render(){ $('numSkills').textContent=state.skills.length;$('numProjects').textContent=state.projects.length;$('numDevices').textContent=state.me.role==='admin'?state.devices.length:'—';projectOptions($('projectFilter'),true);projectOptions($('publishProject'));renderSkills();renderDevices();renderProjects();if(state.view==='security')renderSecurity();}
+function render(){ usageGuide.setSkills(state.skills); $('numSkills').textContent=state.skills.length;$('numProjects').textContent=state.projects.length;$('numDevices').textContent=state.me.role==='admin'?state.devices.length:'—';projectOptions($('projectFilter'),true);projectOptions($('publishProject'));renderSkills();renderDevices();renderProjects();if(state.view==='security')renderSecurity();}
 function renderSkills(){const q=$('search').value.trim().toLowerCase();const p=$('projectFilter').value;const skills=state.skills.filter(s=>(!p||s.project===p)&&`${s.slug} ${s.project} ${s.description}`.toLowerCase().includes(q));const grid=$('skillsGrid');grid.replaceChildren();if(!skills.length)return grid.append(node('div','empty','没有匹配的 Skill。可先创建项目，再发布 SKILL.md。'));
   for(const s of skills){const card=node('button','skill-card');const top=node('div','card-head');const glyph=node('div','glyph','✳');const visible=node('div','visibility'+(s.visibility==='public'?' public':''),s.visibility==='public'?'● 共享':'◌ 私有');top.append(glyph,visible);card.append(top,node('strong',null,s.slug),node('p',null,s.description));const foot=node('div','card-foot');foot.append(node('span',null,s.project),node('b',null,'v'+s.version+'  ↗'));card.append(foot);card.addEventListener('click',()=>details(s));grid.append(card);}}
 async function binary(path,max){
@@ -161,6 +164,8 @@ async function entriesOf(detail){
 async function details(s){
   const identity=state.me;
   const dialog=$('detailDialog'),body=$('detailBody');body.replaceChildren(node('h2',null,s.slug),node('p','detail-meta',`${s.project} · ${s.visibility==='public'?'共享':'私有'} · v${s.version}\n${s.description}`));dialog.showModal();
+  const guideButton=node('button','secondary','让 AI 安装');guideButton.type='button';
+  guideButton.onclick=()=>{dialog.close();view('help');usageGuide.selectSkill(s);};body.append(guideButton);
   try{
     const [detail,history]=await Promise.all([api(`/api/projects/${s.project}/skills/${s.slug}/versions/${s.version}?format=manifest`),api(`/api/projects/${s.project}/skills/${s.slug}/versions`)]);
     if(identity!==state.me||!dialog.open||loggingOut)return;

@@ -5,7 +5,15 @@
 [![CI](https://github.com/lanchenglin/cloudskill-hub/actions/workflows/ci.yml/badge.svg)](https://github.com/lanchenglin/cloudskill-hub/actions/workflows/ci.yml)
 [![MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-当前完整版本 **0.4.3**，开发使用 `main`，发布使用 CI 通过后自动同步的 `worker`；不需要安装中间版本。Workers + D1 + 私有 R2，无需独立 VPS。尚未代替用户完成生产 Cloudflare 部署，本地/CI 结果不代表已经上线。
+当前完整版本 **0.4.4**，开发使用 `main`，发布使用 CI 通过后自动同步的 `worker`；不需要安装中间版本。Workers + D1 + 私有 R2，无需独立 VPS。尚未代替用户完成生产 Cloudflare 部署，本地/CI 结果不代表已经上线。
+
+## 不知道怎样让 AI 下载？先打开“使用说明”
+
+网页侧栏新增 **使用说明**，也可直接访问部署站点的 **`/usage.html`**（无需登录）。选择 Hermes / Claude Code / Codex，选择安装、订阅、更新或上传，填写英文 ID，再点 **复制给 AI**。说明自动带入当前 Hub 地址，真实 Token 和网页密码不会写进复制内容。
+
+技能详情新增 **让 AI 安装**，自动带入该技能的分类 ID、技能 ID 和共享/私有状态；共享页也有入口。技能还没选好时，提示词只让 AI 列出选项，不盲目安装全部。
+
+AI 不运行网页 JavaScript 也可读取 **`/usage.md`**，获取纯文本客户端指南；该地址只返回公开说明，不返回私有技能列表或凭据。安装客户端不等于重新部署 Cloudflare 服务。完整用法见 [USAGE](docs/USAGE.md)。
 
 ## 权限只有这三种使用方式
 
@@ -30,6 +38,7 @@
 
 | 页面 | 用途 |
 |---|---|
+| **使用说明** | 按工具/任务生成可复制提示词和命令；首次安装、Token 配置、多实例与故障说明 |
 | **访问权限** | 令牌列表、备注搜索、权限/状态筛选；点击“新建令牌”签发，列表中查看/复制或撤销 |
 | **项目分类** | 查看分类和技能数量、创建分类，不再混在访问权限中 |
 | **账号设置** | 修改网页密码、查看当前账号、退出当前浏览器 |

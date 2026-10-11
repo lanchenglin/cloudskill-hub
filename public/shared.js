@@ -18,6 +18,7 @@ function render(){
 }
 async function show(s){
   const endpoint=`/api/public/projects/${encodeURIComponent(s.project)}/skills/${encodeURIComponent(s.slug)}/versions/${s.version}`;
+  $('sharedGuide').href='/usage.html?'+new URLSearchParams({project:s.project,skill:s.slug});
   $('sharedTitle').textContent=s.slug;$('sharedText').textContent='正在读取…';$('sharedDownload').hidden=true;$('sharedDialog').showModal();
   try{
     const r=await fetch(endpoint+'/file?path=SKILL.md',{credentials:'omit',redirect:'error',signal:AbortSignal.timeout(20000)});

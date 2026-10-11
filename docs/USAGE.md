@@ -2,17 +2,30 @@
 
 只部署一个 Hub，其他环境主动连接。网页管理员管理分类、可见性和 Token；客户端不会自动获得管理员权限。
 
+## 网页操作指引 / 发给 AI 的话
+
+登录后打开侧栏“使用说明”；公开阅读地址是部署站点的 `/usage.html`，纯文本给 AI 的地址是 `/usage.md`。登录页、共享页也有入口，不需要先登录才能阅读。
+
+先选择工具、任务和访问方式，再从已有技能中选择或填写真实的分类英文 ID、技能 ID。页面自动带入当前站点地址。点击“复制给 AI”，把说明发给具有目标机器终端、文件和网络权限的 AI 执行。页面本身不替你运行安装、发布或部署。
+
+技能详情的“让 AI 安装”会自动填入这一个技能；私有技能的信息只留在本次后台页面，不放进公开链接，退出后清除。匿名说明页只读取公开 catalog，加载失败仍可手动填 ID。
+
+没有填完整 ID 时，生成的话只让 AI 列出可选技能，不给出猜测的安装命令。私有访问使用“修改全部技能”Token，令牌在本机隐藏登录提示输入或提前安全注入 `CLOUDSKILL_TOKEN`；不要放进聊天。UI 不读取或复制真实令牌。
+
+四种任务：安装仅选择的技能；订阅分类会改变同分类订阅，随后 sync 处理当前配置的全部订阅；update 处理当前配置全部已托管技能（没有 --agents 过滤）；publish 上传你指定目录/ZIP，不是提交到 GitHub。页面有范围提醒和预检查命令，失败必须停止。
+
+Windows 选择 PowerShell，Linux/WSL/macOS 选择 Bash；只对命令参数做相应引用，不擅自改变机器和实例。现有 Codex 适配器与其他工具发现目录的边界仍以下文为准，本轮没有变更 CLI 路径。
+
 ## 1. 每个环境安装 CLI
 
 ```bash
-git clone https://github.com/lanchenglin/cloudskill-hub.git
+git clone --branch worker --single-branch https://github.com/lanchenglin/cloudskill-hub.git
 cd cloudskill-hub
-npm ci
-npm link
+npm link --omit=dev --ignore-scripts
 cloudskill --help
 ```
 
-无需 sudo，也不必把网页登录密码交给 Hermes。`npm link` 不适合当前环境时，直接用 `node cli/cloudskill.mjs ...`。
+CLI 运行使用 Node 内置模块，不必安装 Wrangler 或部署服务端。无需 sudo，也不必把网页登录密码交给 Hermes。`npm link` 不适合当前环境时，直接用 `node cli/cloudskill.mjs ...`。
 
 ## 2. 仅使用共享内容，不签发 Token
 

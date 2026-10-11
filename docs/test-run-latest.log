@@ -1,7 +1,6 @@
-CloudSkill Hub 0.4.3
-Index of actual isolated local verification, not a raw execution log.
-Node 24.18.1: npm run check, 118 passed, 0 failed.
-Chromium: separate settings pages, modal issuance, filters, 320-1440px layout, sticky text logout, existing token/password/upload flows passed.
-Logout: request failure, confirmed logout/status-refresh failure, repeat click, upload confirmation, late catalog/reveal response checks passed.
-Native local workerd/D1/R2: 0001-0006 migrations and original authentication, encrypted token, upload and installation smoke passed.
-CI/main-to-worker: check exact commit. Production Cloudflare: NOT performed.
+CloudSkill Hub 0.4.4
+Local Node 24.18.1 npm run check: 129 passed, 0 failed.
+Generated CLI commands: anonymous install/update, category subscription, private install and private publish passed in disposable local fixtures.
+Local full Chromium: NOT completed; unchanged baseline also fails ZIP save in this environment. No ZIP test assertions removed.
+CI browser and worker-runtime: evaluate this exact commit, not a prior result.
+Production Cloudflare deployment: NOT directly performed.

@@ -1,3 +1,4 @@
+import {usageMarkdown} from '../public/lib/usage-guide.js';
 import {GUEST,sharedOnly,canReadSkill,readSkill,defaultVisibility,tokenRole} from './skill-permissions.js';
 import {principal,admin,access,allowed,publisher,publishVisibility,recent,issueToken,authRoutes,cleanupAuth} from './auth.js';
 import {capabilities,startUpload,uploadStatus,uploadArchive,finalizeUpload,cancelUpload,cleanupUploads} from './uploads.js';
@@ -129,7 +130,12 @@ async function wellKnown(req,env,u){
 export async function handler(request,env){
   try{
     const url=new URL(request.url),method=request.method.toUpperCase();let path=url.pathname;
-    if(method==='GET'&&path==='/healthz')return json({ok:true,app:'cloudskill-hub',version:'0.4.3'},200,true);
+    // Public documentation only: never reads D1, cookies, tokens or caller-provided query data.
+    if(path==='/usage.md'){
+      if(!['GET','HEAD'].includes(method))fail('Not found',404);
+      return plain(method==='HEAD'?null:usageMarkdown(url.origin),'text/markdown; charset=utf-8');
+    }
+    if(method==='GET'&&path==='/healthz')return json({ok:true,app:'cloudskill-hub',version:'0.4.4'},200,true);
     const authResponse=await authRoutes(request,env,readJson,json);
     if(authResponse)return authResponse;
     if(method==='GET'&&path.startsWith('/.well-known/'))return await wellKnown(request,env);

@@ -8,6 +8,7 @@
   <title>CloudSkill Hub · 私人技能中心</title>
   <link rel="stylesheet" href="/style.css" />
   <link rel="stylesheet" href="/settings.css" />
+  <link rel="stylesheet" href="/usage.css" />
   <script src="/app.js" type="module"></script>
 </head>
 <body>
@@ -22,6 +23,7 @@
       <button class="nav-item" data-view="devices"><span>▣</span> 客户端设备</button>
       <button class="nav-item" data-view="security"><span>◇</span> 访问权限</button>
       <button class="nav-item" data-view="account"><span aria-hidden="true">◎</span> 账号设置</button>
+      <button class="nav-item" data-view="help"><span aria-hidden="true">?</span> 使用说明</button>
     </nav>
     <div class="side-spacer"></div>
     <div class="aside-info"><span class="live-dot"></span><div><b>Cloudflare 原生</b><small>Workers · D1 · R2</small></div></div>
@@ -43,7 +45,7 @@
     <section id="auth-card" class="auth-panel">
       <div class="eyebrow">SELF-HOSTED / ZERO EXTERNAL DATABASES</div>
       <h1>一个技能库，<br/><em>连接你的所有 AI 工具。</em></h1>
-      <p>网页管理使用账号密码。共享技能无需登录即可拉取；写入操作使用你在网页签发的 Token。</p><p><a href="/shared.html">浏览共享技能（无需登录） →</a></p>
+      <p>网页管理使用账号密码。共享技能无需登录即可拉取；写入操作使用你在网页签发的 Token。</p><p><a href="/shared.html">浏览共享技能（无需登录） →</a> · <a href="/usage.html">如何让 AI 下载技能？</a></p>
       <form id="loginForm" class="auth-form">
         <label for="usernameInput">管理员账号</label>
         <input id="usernameInput" autocomplete="username" required minlength="3" maxlength="64" placeholder="首次初始化时设置的账号" />
@@ -151,6 +153,7 @@ cloudskill check</pre></div></section>
           <div class="panel session-panel"><div class="panel-heading"><div><h2>当前登录</h2><p>只管理当前浏览器的登录状态。</p></div></div><div class="account-card"><span class="avatar" aria-hidden="true">C</span><div><b id="accountName"></b><span class="muted">网页管理员</span></div><span class="status-badge active">已登录</span></div><p>退出不会撤销客户端令牌，不会影响 Hermes 等工具，也不会删除技能。</p><button id="accountLogout" class="secondary wide" type="button" data-logout>退出当前登录</button><button class="text-button wide" type="button" data-go="security">管理访问令牌 →</button></div>
         </div>
       </section>
+      <section id="view-help" class="view guide-view" hidden aria-label="使用说明"><div id="usageGuide"></div></section>
     </div>
   </main>
 </div>

@@ -31,6 +31,9 @@ try{
   const url=`http://127.0.0.1:${port}`;let ready=false;
   for(let i=0;i<100;i++){if(child.exitCode!==null)throw Error('wrangler dev exited: '+logs);try{if((await fetch(url+'/healthz',{signal:AbortSignal.timeout(1000)})).ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,300));}
   if(!ready)throw Error('workerd did not start: '+logs);
+  const help=await fetch(url+'/usage.md');assert.equal(help.status,200);assert.match(help.headers.get('content-type'),/text\/markdown/);assert.ok((await help.text()).includes(url+'/usage.html'));
+  assert.equal((await fetch(url+'/usage.html')).status,200);
+  assert.equal((await fetch(url+'/usage.css')).status,200);
   let cookie='',csrf='';
   async function api(endpoint,method='GET',body=null,token=null){
     const response=await fetch(url+endpoint,{method,headers:{'X-CloudSkill-Request':'1',Origin:url,

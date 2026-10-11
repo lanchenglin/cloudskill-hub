@@ -6,6 +6,7 @@ import json, os, shutil, subprocess, tempfile, time, zipfile
 from playwright.sync_api import sync_playwright
 from settings_checks import check_settings_layout
 from logout_checks import check_upload_logout
+from usage_checks import check_usage_guide
 
 def check_password_bounds(page, first, again, form):
     # Same browser rule as the backend; include astral characters and preserve pasted text.
@@ -230,6 +231,7 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
                 page.screenshot(path=os.environ['BROWSER_SCREENSHOT'],full_page=True)
             page.set_viewport_size({'width':1440,'height':1000})
             check_upload_logout(page,creds)
+            check_usage_guide(page,creds,browser)
             page.locator('[data-view="account"]').click()
             page.locator('#currentPassword').fill(creds['password'])
             check_password_bounds(page,'#newPassword','#newPasswordAgain','#passwordForm')
@@ -243,7 +245,7 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             assert page.locator('#dashboard').is_hidden()
             assert not errors,errors
             browser.close()
-        print('PASS: settings pages separation, metadata filters, 320–1440px layout, sticky mobile logout, failed/logout/reload/late-response guards; Chromium token reveal/copy/hide after refresh and re-login, no secret storage/list leaks, stale reveal after logout discarded; 6–20 password boundaries/Unicode and confirmation for setup/first change/normal change; default password, mandatory first change without bootstrap proof (refresh/re-login/Escape/API rejection), HttpOnly session reload, shared/all writer token issuance, anonymous shared downloads and revocation, ZIP upload/edit/download, password change/logout, unsafe ZIP rejection and mobile layout')
+        print('PASS: usage guide copy/selection/commands, anonymous Markdown, privacy and responsive checks; settings pages separation, metadata filters, 320–1440px layout, sticky mobile logout, failed/logout/reload/late-response guards; Chromium token reveal/copy/hide after refresh and re-login, no secret storage/list leaks, stale reveal after logout discarded; 6–20 password boundaries/Unicode and confirmation for setup/first change/normal change; default password, mandatory first change without bootstrap proof (refresh/re-login/Escape/API rejection), HttpOnly session reload, shared/all writer token issuance, anonymous shared downloads and revocation, ZIP upload/edit/download, password change/logout, unsafe ZIP rejection and mobile layout')
     finally:
         server.terminate()
         try: server.wait(timeout=5)

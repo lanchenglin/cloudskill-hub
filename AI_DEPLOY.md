@@ -255,3 +255,7 @@ HTTP 401：检查会话/密码/Token 是否正确、过期或已撤销；403：�
 ## 后续自动发布的固定分工
 
 GitHub已通过ci.yml配置main全量检查成功后快进worker，禁止为部署在worker上单独提交生产配置。Cloudflare生产分支选择worker，个人使用关闭非生产预览；必须确认worker已经存在且是通过检查的SHA。没有worker或CI失败时先报告，不改用未经测试的main部署。首次手动部署完成后可在用户授权下连接Workers Builds，详细参数见[GitHub发布流程](docs/PUBLISH_GITHUB.md)。已移除旧deploy.yml，不再配置ENABLE_CLOUDFLARE_DEPLOY，也不在GitHub加入Cloudflare密钥做第二条部署通道。只有“配置GitHub”的任务不执行上述Cloudflare步骤。
+
+## 部署后的使用说明入口
+
+交付时告知用户本站 `/usage.html` 和 `/usage.md` 地址，侧栏“使用说明”也可访问。前者供用户选择工具/技能后复制提示词，后者可直接给AI读取，不需要JavaScript或管理员登录。纯文本内容须使用本次实际Hub地址且不含私有技能和令牌。阅读使用说明不授权再部署Hub、签发Token或安装用户未指定的技能。
