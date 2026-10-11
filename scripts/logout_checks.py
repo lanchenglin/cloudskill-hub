@@ -9,6 +9,13 @@ def check_upload_logout(page,creds):
     page.locator('[data-view="publish"]').click()
     page.locator('#skillFile').set_input_files({'name':'SKILL.md','mimeType':'text/markdown','buffer':b'---\nname: logout-check\ndescription: Disposable upload cancellation check.\n---\nSafe test.\n'})
     page.locator('#pickedFiles').filter(has_text='已选择 1 个文件').wait_for()
+    # A busy upload response must not tell the user to wait for a time window.
+    def busy_upload(route):
+        route.fulfill(status=429,content_type='application/json',body='{"error":"Upload session capacity reached (3 active). Finish or cancel an active session to continue."}')
+    page.route('**/api/projects/*/skills/*/uploads',busy_upload)
+    page.locator('#publishSubmit').click()
+    page.locator('#uploadStatus').filter(has_text='请先完成或取消一个').wait_for()
+    page.unroute('**/api/projects/*/skills/*/uploads',busy_upload)
     held=[]
     def hold_upload(route): held.append(route)
     page.route('**/api/uploads/*/archive',hold_upload)

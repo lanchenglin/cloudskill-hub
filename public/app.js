@@ -45,7 +45,10 @@ async function api(path,method='GET',data,extraHeaders={}){
   if(!res.ok){
     if(res.status===401&&!path.startsWith('/api/auth/'))clearLogin();
     if(reply.error==='password_change_required'&&state.me){state.mustChangePassword=true;authUi(true);}
-    const hint=res.status===429?'尝试过于频繁，请稍后再试（服务器已限速）':reply.error||`HTTP ${res.status}`;
+    // An active-upload conflict is not a clock-based limit: completing/cancelling frees a slot immediately.
+    const hint=reply.error==='Upload session capacity reached (3 active). Finish or cancel an active session to continue.'
+      ?'已有 3 个未完成的上传，请先完成或取消一个，再继续上传；无需等到下一小时。'
+      :res.status===429&&path.startsWith('/api/auth/')?'登录验证操作过于频繁，请稍后再试':reply.error||`HTTP ${res.status}`;
     const tokenHints={token_key_unavailable:'令牌加密密钥尚未配置或格式不正确，请按部署说明设置 TOKEN_ENCRYPTION_KEY。',token_decryption_failed:'无法解密此令牌，请恢复原 TOKEN_ENCRYPTION_KEY；不要重新生成密钥覆盖。',token_value_unavailable:'旧令牌只保存了哈希，无法还原；原令牌仍可使用，需要可查看的令牌请重新签发。'};
     throw Object.assign(Error(tokenHints[reply.error]||hint),{status:res.status});
   }

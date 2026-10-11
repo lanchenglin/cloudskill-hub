@@ -1,4 +1,4 @@
-# CloudSkill Hub API — 当前 0.4.5
+# CloudSkill Hub API — 当前 0.4.6
 
 ## 权限模型
 
@@ -126,7 +126,7 @@ manifest包 `format:2` 的digest表示archiveDigest；历史JSON `format:1` 表�
 
 首次统一运行0001–0006迁移。0006增加新令牌加密副本字段，旧哈希记录保持NULL。0005保留旧Token权限，增加新Token分类；历史可见性不可回溯推断，所以旧公开技能仅将已公开的最新版标为public，其他历史不自动公开。
 
-401：无效/撤销/到期身份或匿名写；403：越权、CSRF、待改密、需重新验证；404：不存在或不可读；409：版本/状态冲突；413：大小超限；426：客户端包格式能力不足；429：现有限速；500/503：配置/后端错误。安全边界见 [AUTH](AUTH.md)，测试范围见 [TEST_RESULTS](TEST_RESULTS.md)。
+401：无效/撤销/到期身份或匿名写；403：越权、CSRF、待改密、需重新验证；404：不存在或不可读；409：版本/状态冲突；413：大小超限；426：客户端包格式能力不足；429：登录验证限速，或同时存在 3 个未完成上传；上传无每小时次数限制；500/503：配置/后端错误。安全边界见 [AUTH](AUTH.md)，测试范围见 [TEST_RESULTS](TEST_RESULTS.md)。
 
 ## 令牌再次查看（0.4.4）
 
@@ -140,3 +140,9 @@ POST /api/tokens/{id}/reveal，JSON 请求体 `{}`。必须用网页管理员 Co
 503 token_key_unavailable：运行时 TOKEN_ENCRYPTION_KEY 缺失或不是64位十六进制；新签发也会拒绝，不会生成无法再次查看的新记录。
 503 token_decryption_failed：密钥与原密文不匹配或完整性校验失败；恢复原密钥，不用生成新密钥覆盖。
 401/403：原有会话、CSRF、强制改密和近期验证限制仍适用。所有响应 private/no-store；查询列表与 /api/me 不会批量泄露密文或明文。
+
+## 上传次数（当前规则）
+
+`GET /api/capabilities` 和匿名 `/api/public/capabilities` 返回 `uploads.maxStartsPerHour: null`，表示不设每小时次数上限；`maxActive: 3`、`sessionTtlSeconds: 3600` 和文件大小规则保持不变。开始上传只检查当前未过期的 created/uploading/ready 会话，不统计过去一小时的创建记录。
+
+并行名额已满返回 429 与 `Upload session capacity reached (3 active). Finish or cancel an active session to continue.`；完成或取消一个会话即可立即继续，不必等待整点，也无需轮换 Token。账号验证端点的限速及 Retry-After 单独保留。

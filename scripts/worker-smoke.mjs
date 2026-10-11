@@ -82,7 +82,12 @@ try{
   assert.equal((await api('/api/me','GET',null,token)).role,'shared_writer');
   const publicSource=path.join(temp,'shared-source');await fs.mkdir(publicSource);
   await fs.writeFile(path.join(publicSource,'SKILL.md'),'---\nname: native-shared\ndescription: Shared native test.\n---\nPublic instructions.\n');
-  await publishSource({url,token},'devops',publicSource,{visibility:'public'});
+  assert.equal((await api('/api/capabilities','GET',null,token)).uploads.maxStartsPerHour,null);
+  // More than the old hourly maximum: native D1/R2 and the real CLI publishing path.
+  for(let revision=1;revision<=25;revision++){
+    await fs.writeFile(path.join(publicSource,'SKILL.md'),`---\nname: native-shared\ndescription: Shared native revision ${revision}.\n---\nPublic instructions.\n`);
+    assert.equal((await publishSource({url,token},'devops',publicSource,{visibility:'public'})).version,revision);
+  }
   const anonymous=await install({url,token:null},'devops','native-shared',['hermes']);assert.equal(anonymous[0].status,'installed');
   assert.equal((await fetch(url+'/api/public/projects/devops/skills/native-test/download')).status,404);
   await api('/api/uploads/cleanup','POST',{});
@@ -101,7 +106,7 @@ try{
   assert.ok(!recovery.stdout.includes('reset6'));
   await api('/api/auth/login','POST',{username:'native-admin',password:'reset6'});
   await api('/api/auth/logout','POST',{});
-  console.log('PASS: native encrypted token storage/reveal, repeat viewing after password change and revoked-value inspection; workerd 6-character first password/recovery and 20-character normal change; scrypt, default login/forced activation/rotation/logout/recovery CLI, shared/all tokens + anonymous binary install + independent revocation, D1 migrations, 7 MiB R2 upload, 3-agent install, idempotence and cleanup');
+  console.log('PASS: 25 consecutive native CLI publications without hourly rate limit; native encrypted token storage/reveal, repeat viewing after password change and revoked-value inspection; workerd 6-character first password/recovery and 20-character normal change; scrypt, default login/forced activation/rotation/logout/recovery CLI, shared/all tokens + anonymous binary install + independent revocation, D1 migrations, 7 MiB R2 upload, 3-agent install, idempotence and cleanup');
 }catch(error){console.error(logs);throw error;}
 finally{
   if(child&&child.exitCode===null){try{process.platform==='win32'?child.kill():process.kill(-child.pid,'SIGTERM');}catch{}await new Promise(r=>{if(child.exitCode!==null)return r();const t=setTimeout(r,5000);child.once('exit',()=>{clearTimeout(t);r();});});if(child.exitCode===null){try{process.platform==='win32'?child.kill('SIGKILL'):process.kill(-child.pid,'SIGKILL');}catch{}}}

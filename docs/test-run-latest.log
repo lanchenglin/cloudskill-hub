@@ -1,7 +1,8 @@
-CloudSkill Hub 0.4.5
+CloudSkill Hub 0.4.6
 Actual verification summary, not raw logs.
-Node 24.18.1 npm run check: 137 passed, 0 failed.
-Focused tests: 27 passed, including 8 new token-help tests.
-Local browser: target crashed before new_page; not passed.
-Browser and native Worker: verify the exact commit in CI.
+Node 24.18.1 npm run check: 143 passed, 0 failed, 0 skipped.
+New upload-frequency regression: 6 failed before change, 6 passed after.
+Both writer roles: 25 successive version publications in under one hour.
+Web and cancelled uploads: more than 20 creations without resetting history.
+Native Worker and browser: check exact commit CI result.
 Cloudflare production: not deployed.

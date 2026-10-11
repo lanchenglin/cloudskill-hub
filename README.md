@@ -5,7 +5,9 @@
 [![CI](https://github.com/lanchenglin/cloudskill-hub/actions/workflows/ci.yml/badge.svg)](https://github.com/lanchenglin/cloudskill-hub/actions/workflows/ci.yml)
 [![MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-当前完整版本 **0.4.5**，开发使用 `main`，发布使用 CI 通过后自动同步的 `worker`；不需要安装中间版本。Workers + D1 + 私有 R2，无需独立 VPS。尚未代替用户完成生产 Cloudflare 部署，本地/CI 结果不代表已经上线。
+当前完整版本 **0.4.6**，开发使用 `main`，发布使用 CI 通过后自动同步的 `worker`；不需要安装中间版本。Workers + D1 + 私有 R2，无需独立 VPS。尚未代替用户完成生产 Cloudflare 部署，本地/CI 结果不代表已经上线。
+
+**连续上传不再按小时计数。** 已取消每个身份每小时 20 次创建上传的限制；完成或取消后可立即继续。单包大小、同时最多 3 个未完成上传及登录防暴力猜测保护不变。
 
 ## 像使用 API Key 一样连接工具
 

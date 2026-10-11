@@ -5,14 +5,14 @@ import {resolveLimits,problem,validateEntries} from '../public/lib/policy.js';
 import {layout} from '../public/lib/archive.js';
 import {putVerified} from './upload-stream.js';
 import {randomId,slug,now} from './core.js';
-const HOUR=3600000,TTL=HOUR,MAX_ACTIVE=3,MAX_HOURLY=20;
+const HOUR=3600000,TTL=HOUR,MAX_ACTIVE=3;
 const one=(db,sql,...a)=>db.prepare(sql).bind(...a).first();
 const run=(db,sql,...a)=>db.prepare(sql).bind(...a).run();
 const keys=id=>({archive:`packages/${id}.zip`,manifest:`package-manifests/${id}.json`});
 
-export function capabilities(env){return {version:'0.4.5',uploadProtocol:2,limits:resolveLimits(env),
+export function capabilities(env){return {version:'0.4.6',uploadProtocol:2,limits:resolveLimits(env),
   legacy:{maxFiles:200,maxBundleBytes:6*1024*1024,maxFileBytes:4*1024*1024,maxJsonBytes:9*1024*1024},
-  uploads:{sessionTtlSeconds:TTL/1000,maxActive:MAX_ACTIVE,maxStartsPerHour:MAX_HOURLY,resume:'completed-archive',transport:'worker-stream-to-private-r2',zipCompression:['store','deflate']}};}
+  uploads:{sessionTtlSeconds:TTL/1000,maxActive:MAX_ACTIVE,maxStartsPerHour:null,resume:'completed-archive',transport:'worker-stream-to-private-r2',zipCompression:['store','deflate']}};}
 export async function startUpload(env,u,project,name,body){
   publisher(u,project);slug(project);slug(name);if(!body||typeof body!=='object'||Array.isArray(body))throw problem('Expected upload manifest object');
   const db=env.DB,limits=resolveLimits(env);
@@ -27,12 +27,13 @@ export async function startUpload(env,u,project,name,body){
   if(!Number.isSafeInteger(base)||base<0||base!==(current?.latest_version??0))throw problem('Skill changed. Refresh before publishing.',409);
   const id=randomId('up_'),time=Date.now(),expires=time+TTL;
   const manifest={format:2,files:shape.entries,archiveDigest,archiveBytes:shape.size,rawBytes:validateEntries(shape.entries,limits)};
+  // Only in-flight sessions count. Completed/cancelled history never limits sequential publishing.
+  // Keep the capacity guard atomic with creation; do not split it into a read followed by an INSERT.
   const inserted=await run(db,`INSERT INTO upload_sessions (id,token_id,project_slug,skill_slug,state,manifest,visibility,base_version,created_at,expires_at)
     SELECT ?,?,?,?,'created',?,?,?,?,? WHERE
-    (SELECT COUNT(*) FROM upload_sessions WHERE token_id=? AND state IN ('created','uploading','ready') AND expires_at>?)<? AND
-    (SELECT COUNT(*) FROM upload_sessions WHERE token_id=? AND created_at>?)<?`,
-    id,u.id,project,name,JSON.stringify(manifest),visibility,base,time,expires,u.id,time,MAX_ACTIVE,u.id,time-HOUR,MAX_HOURLY);
-  if(!inserted.meta.changes)throw problem('Upload session quota reached (3 active / 20 starts per hour). Cancel unused sessions.',429);
+    (SELECT COUNT(*) FROM upload_sessions WHERE token_id=? AND state IN ('created','uploading','ready') AND expires_at>?)<?`,
+    id,u.id,project,name,JSON.stringify(manifest),visibility,base,time,expires,u.id,time,MAX_ACTIVE);
+  if(!inserted.meta.changes)throw problem('Upload session capacity reached (3 active). Finish or cancel an active session to continue.',429);
   return {id,state:'created',baseVersion:base,expiresAt:new Date(expires).toISOString(),uploadPath:`/api/uploads/${id}/archive`,finalizePath:`/api/uploads/${id}/finalize`};
 }
 async function owned(env,u,id,{expired=false}={}){
