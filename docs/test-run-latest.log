@@ -1,6 +1,7 @@
-CloudSkill Hub 0.4.4
-Local Node 24.18.1 npm run check: 129 passed, 0 failed.
-Generated CLI commands: anonymous install/update, category subscription, private install and private publish passed in disposable local fixtures.
-Local full Chromium: NOT completed; unchanged baseline also fails ZIP save in this environment. No ZIP test assertions removed.
-CI browser and worker-runtime: evaluate this exact commit, not a prior result.
-Production Cloudflare deployment: NOT directly performed.
+CloudSkill Hub 0.4.5
+Actual verification summary, not raw logs.
+Node 24.18.1 npm run check: 137 passed, 0 failed.
+Focused tests: 27 passed, including 8 new token-help tests.
+Local browser: target crashed before new_page; not passed.
+Browser and native Worker: verify the exact commit in CI.
+Cloudflare production: not deployed.

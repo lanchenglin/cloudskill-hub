@@ -39,3 +39,5 @@ main 用于开发/测试，worker 是固定发布分支。ci.yml 在 main push �
 网页导航：令牌在访问权限中管理/弹窗新建；项目分类和账号设置独立。顶部退出入口需桌面/手机可见，所有退出入口共用原 Cookie 退出流程。布局维护不得修改两种令牌权限、永久有效、6–20密码或首次改密规则；浏览器验收由 scripts/browser-smoke.py 及其 settings_checks/logout_checks 辅助检查完成。
 
 使用说明由 public/lib/usage-guide.js（纯文本/命令）、public/lib/usage-ui.js（界面）维护，后台help与匿名/usage.html共用；/usage.md只返回基于当前origin生成的公开说明，不读取凭据/私有catalog。生成的提示词不包含Token值，默认不安装所有工具，不添加--force，不把客户端安装变成Cloudflare部署。客户端路径适配本轮不改动。
+
+日常主入口为访问权限中的Token用法弹窗，借鉴Sub2API的密钥上下文交互、不是复制其代码。点击名称/使用说明后选择一个工具，显式“复制给AI（含令牌）”可包含已授权查看的本枚令牌；只发送到用户确认的可信工具，不回显日志、不写Git/浏览器存储。原通用说明仍不自动含Token，默认折叠完整表单。新增配置用法不得修改模型API配置、默认安装全部或绕过已失效Token。

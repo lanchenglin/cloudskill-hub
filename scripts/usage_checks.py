@@ -16,6 +16,9 @@ def check_usage_guide(page, creds, browser):
     page.reload();page.locator('#dashboard').wait_for(state='visible')
     page.locator('[data-view="help"]').click()
     expect(page.locator('#view-help')).to_be_visible()
+    assert not page.locator('#usageGuide [data-guide="advanced"]').evaluate('(el)=>el.open')
+    assert len(page.locator('#usageGuide [data-guide="quick-prompt"]').input_value()) < 300
+    page.locator('#usageGuide [data-guide="advanced"] > summary').click()
     expect(page.locator('#guidePrompt')).to_have_value(re.compile('未选定前不要安装'))
     assert origin+'/usage.md' in page.locator('#guidePrompt').input_value()
     page.locator('#guideExisting').select_option('devops/guide-private')

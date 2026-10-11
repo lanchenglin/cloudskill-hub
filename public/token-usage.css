@@ -1,0 +1,32 @@
+/* Per-token help: one choice and one copy, no full-page tutorial required. */
+#tokenRevealDialog{width:min(740px,calc(100vw - 32px));padding:24px;max-height:90dvh}
+#tokenRevealDialog .dialog-heading{margin-bottom:8px;align-items:flex-start}
+#tokenUseTitle{margin:0 0 6px;font-size:23px}
+#tokenRevealLabel{font-size:13px;color:#9daac2;overflow-wrap:anywhere}
+#tokenRevealStatus{margin:8px 0 15px;font-size:12px;line-height:1.6}
+.token-use-tabs{display:flex;gap:5px;padding:4px;background:#101725;border:1px solid #2c3651;border-radius:10px;margin:12px 0 18px}
+.token-use-tabs button{flex:1;border:0;background:transparent;color:#99a9c2;border-radius:7px;min-height:38px;font-size:13px;font-weight:650;padding:8px 6px}
+.token-use-tabs button[aria-pressed=true]{background:#302a52;color:#e2d9ff}
+.token-use-tabs button:focus-visible,.token-name-button:focus-visible{outline:2px solid #b3a5ff;outline-offset:2px}
+.token-use-address{display:flex;align-items:baseline;flex-wrap:wrap;gap:9px;font-size:12px;color:#8393af;margin-bottom:8px}
+.token-use-address code{color:#c4d0e8;overflow-wrap:anywhere}
+.token-use-value{display:flex;gap:8px;align-items:center;margin-bottom:18px}
+.token-use-value .token-secret{flex:1;min-width:0;padding:10px 12px;font-size:11px;line-height:1.6}
+.token-use-value button{flex-shrink:0;padding:8px 10px;min-height:38px}
+.token-use-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:12px 0 10px}
+.token-use-heading label{font-size:14px;font-weight:650}
+.token-use-heading button{font-size:12px;padding:10px 12px}
+#tokenUsePrompt{display:block;min-height:0;height:228px;width:100%;font:13px/1.7 ui-monospace,monospace;resize:vertical;padding:13px;white-space:pre-wrap;overflow-wrap:anywhere}
+#tokenUseNotice{font-size:11px;color:#a4a5bc;margin:9px 0 14px;line-height:1.7}
+.token-use-terminal{border-top:1px solid #303950;padding-top:12px;font-size:12px;color:#9dafca}
+.token-use-terminal summary{cursor:pointer;padding:5px 0}
+.token-use-terminal select{margin-top:12px;max-width:100%;font-size:12px}
+#tokenUseCommands{background:#101725;padding:12px;border-radius:9px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;line-height:1.7;max-height:240px;overflow:auto}
+#tokensList .token-name-button{border:0;padding:0;min-height:28px;background:none;color:#c5b8ff;font-size:13px;font-weight:650;text-align:left;overflow-wrap:anywhere}
+#tokensList .token-name-button:hover{text-decoration:underline}
+@media(max-width:480px){
+ #tokenRevealDialog{padding:17px;width:calc(100vw - 20px)}
+ .token-use-value{flex-wrap:wrap}.token-use-value .token-secret{flex-basis:100%}
+ .token-use-heading{flex-wrap:wrap}#tokenUsePrompt{height:260px;font-size:12px}
+ .token-use-tabs button{font-size:12px;min-height:40px}
+}

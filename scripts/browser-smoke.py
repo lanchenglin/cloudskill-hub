@@ -7,6 +7,7 @@ from playwright.sync_api import sync_playwright
 from settings_checks import check_settings_layout
 from logout_checks import check_upload_logout
 from usage_checks import check_usage_guide
+from token_usage_checks import check_issued_token_usage,check_token_usage,check_revoked_token_usage
 
 def check_password_bounds(page, first, again, form):
     # Same browser rule as the backend; include astral characters and preserve pasted text.
@@ -114,12 +115,14 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             assert finite_response.value.status == 201 and isinstance(finite['expiresAt'],str)
             assert finite_response.value.request.post_data_json['expiresInDays'] == 30
             page.locator('#issuedValue').filter(has_text='csh_').wait_for()
+            check_issued_token_usage(page,finite)
             page.locator('#tokensList').filter(has_text='修改共享技能').wait_for()
             page.locator('#closeTokenCreate').click()
             page.reload();page.locator('#dashboard').wait_for(state='visible')
             page.locator('[data-view="security"]').click()
             permanent_row=page.locator('#tokensList .row-card').filter(has_text='Shared-editing')
             permanent_row.filter(has_text='永久有效').wait_for()
+            check_token_usage(page,creds,permanent,finite)
             # Refresh never contains token values; only an explicit administrator reveal returns one.
             listed=page.request.get(creds['url']+'/api/tokens').json()
             assert listed['tokenStorage']['configured'] is True
@@ -127,7 +130,7 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             assert permanent['token'] not in json.dumps(listed) and finite['token'] not in json.dumps(listed)
             assert permanent['token'] not in page.locator('body').inner_text()
             page.context.grant_permissions(['clipboard-read','clipboard-write'],origin=creds['url'])
-            permanent_row.get_by_role('button',name='查看 / 复制',exact=True).click()
+            permanent_row.get_by_role('button',name='使用说明',exact=True).click()
             page.locator('#tokenRevealDialog').wait_for(state='visible')
             assert page.locator('#tokenRevealValue').inner_text() == permanent['token']
             page.locator('#copyTokenValue').click()
@@ -135,7 +138,7 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             page.locator('#hideTokenValue').click()
             assert page.locator('#tokenRevealValue').inner_text() == ''
             assert page.locator('#tokenRevealDialog').is_hidden()
-            permanent_row.get_by_role('button',name='查看 / 复制',exact=True).click()
+            permanent_row.get_by_role('button',name='使用说明',exact=True).click()
             page.locator('#tokenRevealDialog').wait_for(state='visible')
             page.keyboard.press('Escape')
             assert page.locator('#tokenRevealValue').inner_text() == ''
@@ -144,7 +147,7 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             def hold_reveal(route):
                 held.append((route,route.fetch()))
             page.route('**/api/tokens/*/reveal',hold_reveal)
-            permanent_row.get_by_role('button',name='查看 / 复制',exact=True).click()
+            permanent_row.get_by_role('button',name='使用说明',exact=True).click()
             for _ in range(50):
                 if held: break
                 page.wait_for_timeout(20)
@@ -154,10 +157,12 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             page.wait_for_timeout(100)
             assert page.locator('#tokenRevealValue').inner_text() == '' and page.locator('#tokenRevealDialog').is_hidden()
             assert page.locator('#issuedValue').inner_text() == ''
+            assert page.locator('#tokenUsePrompt').input_value() == ''
+            assert page.locator('#tokenUseCommands').text_content() == ''
             page.locator('#usernameInput').fill(creds['username']);page.locator('#passwordInput').fill(creds['password'])
             page.locator('#authBtn').click();page.locator('#dashboard').wait_for(state='visible')
             page.locator('[data-view="security"]').click()
-            permanent_row.get_by_role('button',name='查看 / 复制',exact=True).click()
+            permanent_row.get_by_role('button',name='使用说明',exact=True).click()
             page.locator('#tokenRevealDialog').wait_for(state='visible')
             assert page.locator('#tokenRevealValue').inner_text() == permanent['token']
             assert permanent['token'] not in page.evaluate('JSON.stringify(localStorage)+JSON.stringify(sessionStorage)')
@@ -171,6 +176,8 @@ with tempfile.TemporaryDirectory(prefix='csh-browser-',dir=os.environ.get('BROWS
             with page.expect_response(lambda response: response.url.endswith('/api/tokens/'+permanent['id']+'/revoke')) as revoked_response:
                 permanent_row.get_by_role('button',name='撤销',exact=True).click()
             assert revoked_response.value.status == 200
+            page.locator('#tokensList .token-row').filter(has_text='Shared-editing').filter(has_text='已撤销').wait_for()
+            check_revoked_token_usage(page,permanent)
             page.locator('#tokensList .row-card').filter(has_text='Shared-editing').filter(has_text='已撤销').wait_for()
             assert page.request.get(creds['url']+'/api/me',headers={'Authorization':'Bearer '+permanent['token']}).status == 401
             assert page.request.get(creds['url']+'/api/me',headers={'Authorization':'Bearer '+finite['token']}).status == 200

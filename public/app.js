@@ -1,3 +1,4 @@
+import {buildTokenUsage,TOKEN_USAGE_ROLES} from './lib/token-usage.js';
 import {mountUsageGuide} from './lib/usage-ui.js';
 import {unpack,verifyPackage,validatePackageManifest,boundedBytes} from './lib/archive.js';
 import {validateEntries,HARD_LIMITS,MiB} from './lib/policy.js';
@@ -6,7 +7,7 @@ import {publishBrowser} from './lib/browser-upload.js';
 import {MIN_PASSWORD_LENGTH,MAX_PASSWORD_LENGTH,validatePassword,validateNewPassword} from './lib/password-policy.js';
 import {TOKEN_ROLES,STATUS_LABELS,tokenStatus,tokenSummary,filterTokens,displayDate,tokenLifetime} from './lib/access-ui.js';
 const $ = id => document.getElementById(id);
-const usageGuide=mountUsageGuide($('usageGuide'),{origin:location.origin});
+const usageGuide=mountUsageGuide($('usageGuide'),{origin:location.origin,onTokens:()=>view('security')});
 function passwordInputs(formId,firstId,againId,initial=false){
   const first=$(firstId),again=$(againId),validate=initial?validatePassword:validateNewPassword;
   function refresh(){
@@ -244,16 +245,49 @@ function renderDevices(){const root=$('deviceList');root.replaceChildren();if(!s
  }}
 // Secret values live only in the visible DOM, never in browser storage or list data.
 let tokenUiGeneration=0,tokenListGeneration=0,revealSequence=0,revealTimer,issuedTimer;
+let tokenUseMeta=null,issuedTokenId=null;
 function clearRevealedToken(){
-  revealSequence++;clearTimeout(revealTimer);
+  revealSequence++;clearTimeout(revealTimer);tokenUseMeta=null;
+  $('tokenUsePrompt').value='';$('tokenUseCommands').textContent='';$('tokenUseOrigin').textContent='';
+  $('copyTokenUsePrompt').disabled=true;$('copyTokenUseCommands').disabled=true;
+  $('tokenUseTerminal').open=false;$('tokenUseShell').value='bash';
+  document.querySelectorAll('[data-token-agent]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.tokenAgent==='hermes')));
   $('tokenRevealValue').textContent='';$('tokenRevealLabel').textContent='';$('tokenRevealStatus').textContent='';
   if($('tokenRevealDialog').open)$('tokenRevealDialog').close();
 }
-function clearIssuedToken(){clearTimeout(issuedTimer);$('issuedValue').textContent='';$('issuedToken').hidden=true;}
+function clearIssuedToken(){issuedTokenId=null;clearTimeout(issuedTimer);$('issuedValue').textContent='';$('issuedToken').hidden=true;}
 function clearVisibleTokens(){
   tokenUiGeneration++;tokenListGeneration++;clearRevealedToken();clearIssuedToken();
   if($('tokenCreateDialog').open)$('tokenCreateDialog').close();
 }
+function tokenUsageActive(){
+  return Boolean(tokenUseMeta?.active&&Object.hasOwn(TOKEN_USAGE_ROLES,tokenUseMeta.role)&&state.me&&!state.mustChangePassword&&!loggingOut&&state.view==='security'&&!document.hidden&&
+    (tokenUseMeta.expiresAt===null||Date.parse(tokenUseMeta.expiresAt)>Date.now()));
+}
+function renderTokenUsage(){
+  const active=tokenUsageActive();
+  $('copyTokenUsePrompt').disabled=!active;$('copyTokenUseCommands').disabled=!active;
+  if(!active){$('tokenUsePrompt').value='';$('tokenUseCommands').textContent='';return;}
+  try{
+    const result=buildTokenUsage({origin:location.origin,token:$('tokenRevealValue').textContent,role:tokenUseMeta.role,agent:tokenUseMeta.agent,shell:$('tokenUseShell').value});
+    $('tokenUsePrompt').value=result.prompt;$('tokenUseCommands').textContent=result.commands;
+  }catch(error){$('tokenUsePrompt').value='';$('tokenUseCommands').textContent='';$('copyTokenUsePrompt').disabled=true;$('copyTokenUseCommands').disabled=true;toast(error.message,true);}
+}
+async function copyTokenUsage(kind){
+  if(!$('tokenRevealDialog').open||!tokenUsageActive()){renderTokenUsage();return;}
+  const field=$(kind==='prompt'?'tokenUsePrompt':'tokenUseCommands'),value=kind==='prompt'?field.value:field.textContent;
+  if(!value)return;const sequence=revealSequence;
+  try{await navigator.clipboard.writeText(value);if(sequence===revealSequence&&tokenUsageActive())toast('已复制（含当前令牌），请只交给可信工具');}
+  catch{if(sequence!==revealSequence||!tokenUsageActive())return;field.focus();if(kind==='prompt')field.select();else{const range=document.createRange();range.selectNodeContents(field);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);}toast('无法自动复制，已选中文本，请手动复制',true);}
+}
+$('copyTokenUsePrompt').onclick=()=>copyTokenUsage('prompt');
+$('copyTokenUseCommands').onclick=()=>copyTokenUsage('commands');
+$('tokenUseShell').onchange=renderTokenUsage;
+document.querySelectorAll('[data-token-agent]').forEach(button=>button.onclick=()=>{
+  if(!tokenUseMeta)return;tokenUseMeta.agent=button.dataset.tokenAgent;
+  document.querySelectorAll('[data-token-agent]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));renderTokenUsage();
+});
+$('useIssued').onclick=()=>{const record=state.tokens.find(t=>t.id===issuedTokenId);if(record)showTokenValue(record);};
 async function showTokenValue(token){
   clearVisibleTokens();const generation=tokenUiGeneration,sequence=revealSequence;
   try{
@@ -262,8 +296,11 @@ async function showTokenValue(token){
     if(generation!==tokenUiGeneration||sequence!==revealSequence||!state.me||state.mustChangePassword||state.view!=='security'||document.hidden)return;
     $('tokenRevealLabel').textContent=token.label;
     $('tokenRevealValue').textContent=result.token;
-    $('tokenRevealStatus').textContent=result.active?'可复制到需要此权限的客户端。':'此令牌已过期或撤销，仅供核对，查看不会使其恢复有效。';
-    $('tokenRevealDialog').showModal();revealTimer=setTimeout(clearRevealedToken,60000);
+    tokenUseMeta={role:token.role,active:result.active===true,expiresAt:result.expiresAt,agent:'hermes'};
+    $('tokenUseOrigin').textContent=location.origin;
+    $('tokenRevealStatus').textContent=!result.active?'此令牌已过期或撤销，仅供核对，不能用于新的连接。':Object.hasOwn(TOKEN_USAGE_ROLES,token.role)?TOKEN_USAGE_ROLES[token.role]+' · 选好工具，复制下面的用法即可。':'旧类型令牌仅供查看，请按原权限使用。';
+    renderTokenUsage();
+    $('tokenRevealDialog').showModal();revealTimer=setTimeout(clearRevealedToken,result.active&&result.expiresAt?Math.max(1,Math.min(60000,Date.parse(result.expiresAt)-Date.now())):60000);
   }catch(error){if(generation===tokenUiGeneration&&state.me)toast(error.message,true);}
 }
 $('hideTokenValue').onclick=clearRevealedToken;
@@ -292,7 +329,7 @@ function openTokenCreate(){
 $('openTokenCreate').onclick=openTokenCreate;
 $('closeTokenCreate').onclick=clearVisibleTokens;
 $('tokenCreateDialog').addEventListener('cancel',event=>{event.preventDefault();clearVisibleTokens();});
-$('tokenCreateDialog').addEventListener('close',()=>{if(!$('tokenCreateDialog').open){tokenUiGeneration++;clearIssuedToken();}});
+$('tokenCreateDialog').addEventListener('close',()=>{if(!$('tokenCreateDialog').open&&$('issuedValue').textContent){tokenUiGeneration++;clearIssuedToken();}});
 $('tokenRole').onchange=tokenFormHints;$('tokenDays').onchange=tokenFormHints;
 function renderSecurity(){if(state.me?.role==='admin'&&state.view==='security')refreshTokens();}
 function renderTokenList(){
@@ -306,7 +343,7 @@ function renderTokenList(){
   }
   for(const t of items){
     const status=tokenStatus(t),row=node('article','row-card token-row'),info=node('div','token-identity');row.dataset.tokenId=t.id;row.setAttribute('aria-label',t.label+'，'+STATUS_LABELS[status]);
-    const title=node('div','token-name-line');title.append(node('b',null,t.label),node('span','status-badge '+status,STATUS_LABELS[status]));
+    const title=node('div','token-name-line');const name=t.recoverable?node('button','token-name-button',t.label):node('b',null,t.label);if(t.recoverable){name.type='button';name.title='查看令牌与使用说明';name.onclick=()=>showTokenValue(t);}title.append(name,node('span','status-badge '+status,STATUS_LABELS[status]));
     info.append(title,node('small',null,'创建于 '+displayDate(t.created_at,{empty:'未知',dateOnly:true})));
     if(!t.recoverable)info.append(node('small',null,'旧令牌无可恢复副本，仍可按原权限使用。'));
     const role=node('div','token-cell token-role');role.dataset.label='访问权限';role.append(node('span','permission-badge '+(['shared_writer','all_writer'].includes(t.role)?t.role:'legacy'),TOKEN_ROLES[t.role]||'旧令牌'));
@@ -314,7 +351,7 @@ function renderTokenList(){
     const expires=node('div','token-cell',tokenLifetime(t));expires.dataset.label='有效期';
     const last=node('div','token-cell',displayDate(t.last_used_at));last.dataset.label='最近使用';
     const actions=node('div','token-actions');
-    if(t.recoverable){const reveal=node('button','token-view-button','查看 / 复制');reveal.type='button';reveal.onclick=()=>showTokenValue(t);actions.append(reveal);}
+    if(t.recoverable){const reveal=node('button','token-view-button','使用说明');reveal.type='button';reveal.onclick=()=>showTokenValue(t);actions.append(reveal);}
     if(!t.revoked_at){
       const revoke=node('button',null,'撤销');revoke.type='button';
       revoke.onclick=async()=>{
@@ -363,7 +400,7 @@ async function issue(ev){
     await refreshTokens();
     if(generation!==tokenUiGeneration||!state.me||state.view!=='security'||document.hidden||!$('tokenCreateDialog').open)return;
     $('tokenSearch').value='';$('tokenRoleFilter').value='';$('tokenStatusFilter').value='';renderTokenList();
-    clearIssuedToken();$('issuedValue').textContent=result.token;$('issuedToken').hidden=false;
+    clearIssuedToken();issuedTokenId=result.id;$('issuedValue').textContent=result.token;$('issuedToken').hidden=false;
     issuedTimer=setTimeout(clearIssuedToken,60000);toast('令牌已生成，以后也可从列表查看和复制');
   }catch(error){if(generation===tokenUiGeneration&&state.me){$('tokenCreateError').textContent=error.message;$('tokenCreateError').hidden=false;}}
   finally{tokenIssuing=false;button.disabled=!state.tokenStorageReady;button.textContent='生成令牌';}

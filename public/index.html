@@ -8,6 +8,7 @@
   <title>CloudSkill Hub · 私人技能中心</title>
   <link rel="stylesheet" href="/style.css" />
   <link rel="stylesheet" href="/settings.css" />
+  <link rel="stylesheet" href="/token-usage.css" />
   <link rel="stylesheet" href="/usage.css" />
   <script src="/app.js" type="module"></script>
 </head>
@@ -132,7 +133,7 @@ cloudskill check</pre></div></section>
           <p id="tokenListError" class="notice notice-warning" role="alert" hidden></p>
           <div class="token-table-head" aria-hidden="true"><span>令牌备注 / 状态</span><span>访问权限</span><span>有效期</span><span>最近使用</span><span>操作</span></div>
           <div id="tokensList" class="rows" aria-label="令牌列表" aria-busy="false"></div>
-          <div class="token-list-footer"><span id="tokenFilteredCount" aria-live="polite"></span><span>明文默认隐藏，查看后可复制，再次登录仍可查看。</span></div>
+          <div class="token-list-footer"><span id="tokenFilteredCount" aria-live="polite"></span><span>点击令牌名称或“使用说明”，直接复制对应工具的用法。</span></div>
         </div>
         <details id="tokenDangerZone" class="danger-zone">
           <summary>高风险操作 <span>撤销全部访问令牌</span></summary>
@@ -167,14 +168,26 @@ cloudskill check</pre></div></section>
     <p class="field-hint">不绑定设备或项目。两种令牌都不能管理网页账号及其他令牌。</p>
     <p id="tokenCreateError" class="notice notice-warning" role="alert" hidden></p>
     <button type="submit" class="primary wide">生成令牌</button>
-    <div id="issuedToken" class="issued" hidden><b>令牌已生成</b><p>现在可以复制，以后也可以从列表再次查看。</p><code id="issuedValue" aria-label="新生成的访问令牌"></code><div class="section-actions"><button type="button" class="secondary" id="copyIssued">复制令牌</button><button type="button" class="secondary" id="hideIssued">隐藏</button></div></div>
+    <div id="issuedToken" class="issued" hidden><b>令牌已生成</b><p>现在可以复制，以后也可以从列表再次查看。</p><code id="issuedValue" aria-label="新生成的访问令牌"></code><div class="section-actions"><button type="button" class="secondary" id="copyIssued">复制令牌</button><button type="button" class="secondary" id="hideIssued">隐藏</button><button type="button" class="primary" id="useIssued">使用说明</button></div></div>
   </form>
 </dialog>
-<dialog id="tokenRevealDialog" aria-labelledby="tokenRevealLabel">
-  <h3 id="tokenRevealLabel"></h3><p id="tokenRevealStatus"></p>
-  <code id="tokenRevealValue" class="token-secret" aria-label="访问令牌"></code>
-  <p class="muted">此处显示 60 秒后自动隐藏，之后可再次查看。不要把令牌发布到公开位置。</p>
-  <div class="detail-actions"><button id="copyTokenValue" type="button" class="primary">复制令牌</button><button id="hideTokenValue" type="button" class="secondary">隐藏并关闭</button></div>
+<dialog id="tokenRevealDialog" aria-labelledby="tokenUseTitle tokenRevealLabel">
+  <div class="dialog-heading"><div><h2 id="tokenUseTitle">使用令牌</h2><b id="tokenRevealLabel"></b></div><button id="hideTokenValue" class="dialog-close" type="button" aria-label="关闭令牌使用说明">×</button></div>
+  <p id="tokenRevealStatus" class="field-hint"></p>
+  <div class="token-use-tabs" role="group" aria-label="选择 AI 工具">
+    <button type="button" data-token-agent="hermes" aria-pressed="true">Hermes</button>
+    <button type="button" data-token-agent="claude" aria-pressed="false">Claude Code</button>
+    <button type="button" data-token-agent="codex" aria-pressed="false">Codex</button>
+  </div>
+  <div class="token-use-address"><span>Hub 地址</span><code id="tokenUseOrigin"></code></div>
+  <div class="token-use-value"><code id="tokenRevealValue" class="token-secret" aria-label="访问令牌"></code><button id="copyTokenValue" type="button" class="secondary">复制 Token</button></div>
+  <div class="token-use-heading"><label for="tokenUsePrompt">直接发给 AI</label><button id="copyTokenUsePrompt" type="button" class="primary" disabled>复制给 AI（含令牌）</button></div>
+  <textarea id="tokenUsePrompt" readonly spellcheck="false" aria-describedby="tokenUseNotice"></textarea>
+  <p id="tokenUseNotice" class="field-hint">包含当前令牌，仅发给你信任的 AI。关闭、离开页面或 60 秒后清除页面明文。</p>
+  <details id="tokenUseTerminal" class="token-use-terminal"><summary>已有客户端？复制终端配置</summary>
+    <label for="tokenUseShell" class="sr-only">终端环境</label><select id="tokenUseShell"><option value="bash">Linux / WSL / macOS</option><option value="powershell">Windows PowerShell</option></select>
+    <pre id="tokenUseCommands" tabindex="0"></pre><button id="copyTokenUseCommands" type="button" class="secondary" disabled>复制配置（含令牌）</button>
+  </details>
 </dialog>
 <dialog id="reauthDialog"><form id="reauthForm"><h3>再次确认管理员身份</h3><p>此敏感操作需要重新验证密码。</p><label for="reauthPassword">当前密码</label><input id="reauthPassword" type="password" autocomplete="current-password" required maxlength="256" /><p id="reauthError" role="alert"></p><button type="submit" class="primary">确认</button><button type="button" id="cancelReauth" class="secondary">取消</button></form></dialog>
 </body>

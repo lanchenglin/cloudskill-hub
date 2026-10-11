@@ -135,7 +135,7 @@ export async function handler(request,env){
       if(!['GET','HEAD'].includes(method))fail('Not found',404);
       return plain(method==='HEAD'?null:usageMarkdown(url.origin),'text/markdown; charset=utf-8');
     }
-    if(method==='GET'&&path==='/healthz')return json({ok:true,app:'cloudskill-hub',version:'0.4.4'},200,true);
+    if(method==='GET'&&path==='/healthz')return json({ok:true,app:'cloudskill-hub',version:'0.4.5'},200,true);
     const authResponse=await authRoutes(request,env,readJson,json);
     if(authResponse)return authResponse;
     if(method==='GET'&&path.startsWith('/.well-known/'))return await wellKnown(request,env);

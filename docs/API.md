@@ -1,4 +1,4 @@
-# CloudSkill Hub API — 当前 0.4.4
+# CloudSkill Hub API — 当前 0.4.5
 
 ## 权限模型
 
